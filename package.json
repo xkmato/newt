@@ -1,0 +1,22 @@
+{
+  "name": "newt-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Newt — Standalone AI-Agentic UI & Limb Authoring Studio in the Amphibian Class",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "vitest run",
+    "lint": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "smol-toml": "^1.3.1",
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

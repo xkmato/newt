@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://salamanda.dev/schemas/v1/limb.schema.json",
+  "title": "Salamanda Limb Manifest (limb.toml)",
+  "description": "Public contract schema for a Salamanda Limb manifest (v1.0.0).",
+  "type": "object",
+  "required": ["limb", "requires", "permissions"],
+  "additionalProperties": false,
+  "properties": {
+    "limb": {
+      "type": "object",
+      "required": ["id", "name", "version", "level", "author"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
+          "description": "Unique URL-safe identifier for the limb."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+          "description": "Semantic version of the limb."
+        },
+        "level": {
+          "type": "integer",
+          "enum": [1, 2, 3],
+          "description": "Extension Level: 1 (Declarative Slot Overlay), 2 (Sandboxed Functions), 3 (Full Source Variant)."
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Verified principal ID of the limb author (e.g., uid:abc123)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    },
+    "requires": {
+      "type": "object",
+      "required": ["contract", "base"],
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "type": "string",
+          "description": "Semver range of the Salamanda public contract required (e.g., '>=1.0')."
+        },
+        "base": {
+          "type": "string",
+          "description": "Target base platform identifier (e.g., 'xkmato')."
+        },
+        "base_compat": {
+          "type": "string",
+          "description": "Optional base version compatibility constraint."
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.-]+$"
+          },
+          "uniqueItems": true,
+          "description": "Named slots declared in the base's slots.json that this limb mounts into."
+        }
+      }
+    },
+    "ui": {
+      "type": "array",
+      "description": "Declarative slot attachments for Level 1 and Level 2 limbs.",
+      "items": {
+        "type": "object",
+        "required": ["slot", "component", "isolation"],
+        "additionalProperties": false,
+        "properties": {
+          "slot": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.-]+$"
+          },
+          "route_pattern": {
+            "type": "string",
+            "default": "/*"
+          },
+          "component": {
+            "type": "string",
+            "description": "Relative path to the UI bundle or HTML/WebComponent asset."
+          },
+          "style": {
+            "type": "string",
+            "description": "Optional relative path to CSS stylesheet."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["iframe", "same-origin-personal"],
+            "description": "Shared limbs MUST use 'iframe'. Personal limbs may opt into 'same-origin-personal'."
+          }
+        }
+      }
+    },
+    "functions": {
+      "type": "array",
+      "description": "Sandboxed backend function endpoints (Level 2+).",
+      "items": {
+        "type": "object",
+        "required": ["route", "method", "handler"],
+        "additionalProperties": false,
+        "properties": {
+          "route": {
+            "type": "string",
+            "pattern": "^/_limb/[a-z0-9-]+/.*$"
+          },
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]
+          },
+          "handler": {
+            "type": "string",
+            "description": "Relative path to the JS/Wasm handler file inside the limb bundle."
+          }
+        }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "description": "Source patch descriptor for Level 3 Variant limbs.",
+      "required": ["digest", "touches"],
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "diff_file": {
+          "type": "string",
+          "default": "patches/variant.patch"
+        },
+        "touches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "required": ["data_read", "data_write", "egress", "sidecar"],
+      "additionalProperties": false,
+      "properties": {
+        "data_read": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "data_write": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "egress": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "hostname"
+          },
+          "default": []
+        },
+        "sidecar": {
+          "type": "string",
+          "enum": ["none", "personal", "shared", "scratch"]
+        },
+        "max_memory_mb": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 2048,
+          "default": 64
+        },
+        "max_cpu_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 30000,
+          "default": 500
+        }
+      }
+    },
+    "sidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "migrations": {
+          "type": "string",
+          "default": "migrations/"
+        }
+      }
+    }
+  }
+}

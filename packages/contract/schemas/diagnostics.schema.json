@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://salamanda.dev/schemas/v1/diagnostics.schema.json",
+  "title": "Salamanda Machine-Readable Diagnostics",
+  "description": "Structured validation and build error diagnostics designed for both AI self-correction loops (Amphibian) and human CLI output.",
+  "type": "object",
+  "required": ["valid", "diagnostics"],
+  "additionalProperties": false,
+  "properties": {
+    "valid": {
+      "type": "boolean",
+      "description": "True if no error-severity diagnostics were produced."
+    },
+    "limb_id": {
+      "type": "string"
+    },
+    "contract_version": {
+      "type": "string",
+      "default": "1.0.0"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "path", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^SAL-[A-Z]+-\\d{3}$",
+            "description": "Stable diagnostic error code (e.g., SAL-PERM-001, SAL-SLOT-002, SAL-EDIT-003)."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["error", "warning", "info"]
+          },
+          "path": {
+            "type": "string",
+            "description": "TOML key path or file path where the issue occurred (e.g., 'permissions.egress[0]' or 'ui[0].slot')."
+          },
+          "message": {
+            "type": "string",
+            "description": "Clear human- and LLM-readable description of the violation."
+          },
+          "hint": {
+            "type": "string",
+            "description": "Explanation of why the policy or contract check failed."
+          },
+          "suggested_fix": {
+            "type": "string",
+            "description": "Concrete replacement snippet or actionable instruction for an AI authoring client."
+          },
+          "doc_url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      }
+    }
+  }
+}

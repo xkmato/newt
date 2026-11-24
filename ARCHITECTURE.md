@@ -341,17 +341,17 @@ flowchart LR
 ```
 
 ### Milestone 0: Workspace Foundation, Salamanda Contract & Portable Base SDK
-- [ ] **Task 0.1 — Initialize `/Users/kenneth/Code/newt` Monorepo:**
+- [x] **Task 0.1 — Initialize `/Users/kenneth/Code/newt` Monorepo:**
   Configure `git`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, Biome/ESLint, Vitest, and `.github/workflows/ci.yml`.
   *Accept:* `pnpm build`, `pnpm typecheck`, and `pnpm test` pass in `<5s`.
-- [ ] **Task 0.2 — `@newt/contract` (Salamanda v1.0.0 Schemas, Offline `SAL-*` Validator & SDK):**
+- [x] **Task 0.2 — `@newt/contract` (Salamanda v1.0.0 Schemas, Offline `SAL-*` Validator & SDK):**
   Sync Salamanda `v1.0.0` schemas, implement lossless TOML parse/serialize (`smol-toml`), implement 100% parity TypeScript `validateLimbManifest()` reproducing all `SAL-*` diagnostics, and extend `SalamandaControlPlaneClient`.
   *Accept:* Passes conformance tests on all `xkmato/salamanda` sample limbs and reproduces every `SAL-*` error code.
-- [ ] **Task 0.3 — `@newt/base-sdk` (Portable `AmphibianPlatformManifest` Specification & Loader):**
+- [x] **Task 0.3 — `@newt/base-sdk` (Portable `AmphibianPlatformManifest` Specification & Loader):**
   Define `platform-manifest.schema.json` (`/.well-known/amphibian.json`), semantic `--newt-*` CSS variable mapper, `singleton` vs `repeater` slot model, canonical entity schema formatter for LLM prompts, and zero-config HTML/CSS auto-inspector for external URLs.
   *Accept:* Unit tests validate manifests for two distinct platforms (Next.js/Firebase + Express/Vanilla) and generate valid Salamanda `BaseSpec` + `SlotsManifest` artifacts from each.
-- [ ] **Task 0.4 — `@newt/base-xkmato` (Ground-Truth XKMato Base Pack & Integration Kit):**
-  Encode `/Users/kenneth/Code/xkmato`'s exact routes (`/`, `/blog`, `/blog/*`, `/feed`), 7 slots (`blog.header`, `blog.sidebar`, `blog.footer`, `blog.list.header`, `feed.header`, `feed.footer`, repeater `micropost.footer`, `shell.dock`), `shadcn` `oklch` light/dark tokens (`globals.css`), `BlogPost` (TipTap HTML) & `Micropost` schemas/fixtures, and ready-to-copy XKMato integration files (`AmphibianSlot.tsx`, `NewtBridge.tsx`, `/api/auth/session`, `/api/health`, `salamanda.toml`, `slots.json`).
+- [x] **Task 0.4 — `@newt/base-xkmato` (Ground-Truth XKMato Base Pack & Integration Kit):**
+  Encode `/Users/kenneth/Code/xkmato`'s exact routes (`/`, `/blog`, `/blog/*`, `/feed`), 9 slots (`blog.header`, `blog.sidebar`, `blog.footer`, `blog.list.header`, `feed.header`, `feed.footer`, repeater `micropost.footer`, `home.hero.after`, `shell.dock`), `shadcn` `oklch` light/dark tokens (`globals.css`), `BlogPost` (TipTap HTML) & `Micropost` schemas/fixtures, and ready-to-copy XKMato integration files (`AmphibianSlot.tsx`, `NewtBridge.tsx`, `/api/auth/session`, `/api/health`, `salamanda.toml`, `slots.json`).
   *Accept:* Validates cleanly against `@newt/contract` and `@newt/base-sdk`.
 
 ### Milestone 1: `@newt/ui-sdk`, Deterministic Limb Compiler & Browser Host Simulator

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amphibian.dev/schemas/v1/platform-manifest.schema.json",
+  "title": "Amphibian Portable Platform Manifest",
+  "description": "Portable host discovery manifest (/.well-known/amphibian.json) enabling Newt and Salamanda to plug into any web platform without hardcoding routes, CSS tokens, or entity schemas.",
+  "type": "object",
+  "required": ["contract_version", "base", "runtime", "auth", "theme", "slots"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "contract_version": { "type": "string", "pattern": "^1\\.\\d+\\.\\d+$" },
+    "base": {
+      "type": "object",
+      "required": ["id", "name", "framework"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+        "name": { "type": "string", "minLength": 1 },
+        "framework": { "type": "string", "minLength": 1 },
+        "origin": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["allow_levels"],
+      "additionalProperties": false,
+      "properties": {
+        "allow_levels": {
+          "type": "array",
+          "items": { "type": "integer", "enum": [1, 2, 3] },
+          "minItems": 1
+        },
+        "supports_client_only_hydration": { "type": "boolean", "default": true },
+        "health_path": { "type": "string" }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": ["strategy"],
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["host-token-callback", "cookie-session", "oidc-bearer", "anonymous-dev"]
+        },
+        "ssr_cookie": { "type": "string" },
+        "login_path": { "type": "string" }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "required": ["tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "dark_mode_selector": { "type": "string", "default": "html.dark" },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "light_fallbacks": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "dark_fallbacks": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "slots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "cardinality", "description", "routes", "anchor_selector"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+          "cardinality": { "type": "string", "enum": ["singleton", "repeater"] },
+          "description": { "type": "string" },
+          "routes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "anchor_selector": { "type": "string" },
+          "placement": { "type": "string", "enum": ["inside-start", "inside-end", "before", "after"] },
+          "context_props": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "permissions_catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "readable_collections": { "type": "array", "items": { "type": "string" } },
+        "sensitive_collections": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "canonical_entities": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "fields"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "fields": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

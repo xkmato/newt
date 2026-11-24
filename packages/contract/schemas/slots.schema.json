@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://salamanda.dev/schemas/v1/slots.schema.json",
+  "title": "Salamanda Base Slot Manifest (slots.json)",
+  "description": "Defines stable named extension mount points exposed by a Base application outside or alongside hydration boundaries.",
+  "type": "object",
+  "required": ["base", "contract_version", "slots"],
+  "additionalProperties": false,
+  "properties": {
+    "base": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contract_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "slots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "routes", "anchor_selector", "placement"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.-]+$",
+            "description": "Stable slot identifier (e.g., 'post.header', 'post.sidebar', 'feed.footer')."
+          },
+          "description": {
+            "type": "string"
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Glob route patterns where this slot is present (e.g., ['/post/*', '/feed/*'])."
+          },
+          "anchor_selector": {
+            "type": "string",
+            "description": "HTML attribute selector rendered by the base for slot mounting, e.g., '[data-salamanda-slot=\"post.header\"]'."
+          },
+          "placement": {
+            "type": "string",
+            "enum": ["inside-start", "inside-end", "before", "after"],
+            "default": "inside-end"
+          },
+          "context_props": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Data attributes passed from the slot anchor to the mounted limb component (e.g., ['post-id', 'author-id'])."
+          }
+        }
+      }
+    }
+  }
+}

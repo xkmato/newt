@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://salamanda.dev/schemas/v1/capabilities.schema.json",
+  "title": "Salamanda Runtime Capabilities Response",
+  "description": "Returned by GET /v1/capabilities so authoring clients can discover supported extension levels, slots, permissions, and limits at runtime.",
+  "type": "object",
+  "required": ["contract_version", "base", "allow_levels", "slots", "permissions_catalog", "limits"],
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "example": "1.0.0"
+    },
+    "base": {
+      "type": "object",
+      "required": ["name", "framework"],
+      "properties": {
+        "name": { "type": "string" },
+        "framework": { "type": "string" }
+      }
+    },
+    "allow_levels": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "enum": [1, 2, 3]
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["stable", "beta", "experimental", "disabled"]
+      }
+    },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "permissions_catalog": {
+      "type": "object",
+      "required": ["data_read_scopes", "data_write_scopes", "sidecar_scopes"],
+      "properties": {
+        "data_read_scopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "data_write_scopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "sidecar_scopes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["none", "personal", "shared", "scratch"] }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": ["max_memory_mb", "max_cpu_ms", "max_limbs_per_principal"],
+      "properties": {
+        "max_memory_mb": { "type": "integer" },
+        "max_cpu_ms": { "type": "integer" },
+        "max_limbs_per_principal": { "type": "integer" }
+      }
+    }
+  }
+}
