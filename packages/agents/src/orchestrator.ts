@@ -184,13 +184,15 @@ export async function runNewtOrchestrator(
     const [dataBatch, uiBatch] = await Promise.all([dataPromise, uiPromise]);
 
     const writtenPaths: string[] = [];
+    let wroteLimbToml = false;
     if (dataBatch) {
       for (const f of dataBatch.files) {
         vfs[f.path] = f.content;
         writtenPaths.push(f.path);
+        if (f.path === "limb.toml") wroteLimbToml = true;
       }
     }
-    if (!vfs["limb.toml"]) {
+    if (!wroteLimbToml) {
       vfs["limb.toml"] = synthesizeFallbackLimbToml(
         blueprint,
         req.authorUid,

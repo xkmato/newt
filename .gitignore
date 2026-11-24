@@ -3,9 +3,16 @@ dist/
 .turbo/
 .next/
 coverage/
+test-results/
+playwright-report/
+next-env.d.ts
+*.tsbuildinfo
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 .env
 .env.*
 !.env.example

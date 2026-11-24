@@ -8,7 +8,9 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
-    "lint": "turbo run typecheck"
+    "lint": "turbo run typecheck",
+    "studio": "pnpm --filter @newt/studio dev",
+    "newt": "node packages/cli/dist/bin.js"
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",

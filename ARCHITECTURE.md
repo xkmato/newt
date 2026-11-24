@@ -383,13 +383,13 @@ flowchart LR
   *Accept:* Seeded manifest, SQL, L2 guard, and TSX errors self-repair to `valid == true` in `<= 2` iterations.
 
 ### Milestone 3: Standalone Newt Studio (`apps/studio`) & `newt` CLI
-- [ ] **Task 3.1 — Newt Daemon API & SSE Streaming Routes (`apps/studio/app/api/v1/*`):**
+- [x] **Task 3.1 — Newt Daemon API & SSE Streaming Routes (`apps/studio/app/api/v1/*`):**
   Implement `/health`, `/bases`, `/projects`, `/projects/:id/files`, `/projects/:id/rollback`, and streaming SSE `/projects/:id/chat`.
   *Accept:* Integration tests verify SSE event ordering, manual code edits, and checkpoint restores.
-- [ ] **Task 3.2 — Standalone Studio UI with Pluggable Base Shell Simulator:**
+- [x] **Task 3.2 — Standalone Studio UI with Pluggable Base Shell Simulator:**
   Build the split-pane Studio: Agent Chat & Trace, **Pluggable Base Simulator** (renders faithful XKMato `/`, `/blog`, `/blog/[slug]` TipTap article + progressive `:has()` sidebar, and `/feed` infinite-scroll `MicropostCard`s, OR any custom `AmphibianPlatformManifest` / isolated component canvas!), Code/Diff Editor, `sql.js` Sidecar Explorer, and Contract/Security Inspector.
   *Accept:* Playwright E2E test builds both a standalone UI widget and an XKMato `blog.sidebar` Limb in Studio, toggling `.dark` mode and inspecting live SQLite rows.
-- [ ] **Task 3.3 — `newt` Standalone CLI (`packages/cli`):**
+- [x] **Task 3.3 — `newt` Standalone CLI (`packages/cli`):**
   Implement `newt init`, `newt studio`, `newt dev`, `newt build`, `newt validate`, `newt inspect-url <url>` (bootstraps a Base Pack from any live site), and `newt doctor`.
   *Accept:* `pnpm newt build` produces a Limb directory passing `salamanda validate`.
 

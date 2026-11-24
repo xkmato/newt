@@ -1,0 +1,414 @@
+:root {
+  color-scheme: light dark;
+
+  --studio-bg-light: oklch(0.985 0.004 250);
+  --studio-bg-dark: oklch(0.145 0.01 255);
+  --studio-panel-light: oklch(1 0 0);
+  --studio-panel-dark: oklch(0.185 0.012 255);
+  --studio-surface-light: oklch(0.96 0.006 250);
+  --studio-surface-dark: oklch(0.235 0.014 255);
+  --studio-fg-light: oklch(0.165 0.015 255);
+  --studio-fg-dark: oklch(0.965 0.006 250);
+  --studio-muted-light: oklch(0.49 0.015 255);
+  --studio-muted-dark: oklch(0.71 0.014 255);
+  --studio-border-light: oklch(0.89 0.01 255);
+  --studio-border-dark: oklch(1 0 0 / 12%);
+  --studio-accent-light: oklch(0.49 0.16 165);
+  --studio-accent-dark: oklch(0.73 0.15 165);
+  --studio-accent-fg-light: oklch(0.99 0 0);
+  --studio-accent-fg-dark: oklch(0.15 0.02 165);
+
+  --studio-bg: var(--studio-bg-light);
+  --studio-panel: var(--studio-panel-light);
+  --studio-surface: var(--studio-surface-light);
+  --studio-fg: var(--studio-fg-light);
+  --studio-muted: var(--studio-muted-light);
+  --studio-border: var(--studio-border-light);
+  --studio-accent: var(--studio-accent-light);
+  --studio-accent-fg: var(--studio-accent-fg-light);
+  --studio-radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --studio-bg: var(--studio-bg-dark);
+    --studio-panel: var(--studio-panel-dark);
+    --studio-surface: var(--studio-surface-dark);
+    --studio-fg: var(--studio-fg-dark);
+    --studio-muted: var(--studio-muted-dark);
+    --studio-border: var(--studio-border-dark);
+    --studio-accent: var(--studio-accent-dark);
+    --studio-accent-fg: var(--studio-accent-fg-dark);
+  }
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  color-scheme: dark;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  color-scheme: light;
+}
+
+@supports (color: light-dark(white, black)) {
+  :root {
+    --studio-bg: light-dark(var(--studio-bg-light), var(--studio-bg-dark));
+    --studio-panel: light-dark(var(--studio-panel-light), var(--studio-panel-dark));
+    --studio-surface: light-dark(var(--studio-surface-light), var(--studio-surface-dark));
+    --studio-fg: light-dark(var(--studio-fg-light), var(--studio-fg-dark));
+    --studio-muted: light-dark(var(--studio-muted-light), var(--studio-muted-dark));
+    --studio-border: light-dark(var(--studio-border-light), var(--studio-border-dark));
+    --studio-accent: light-dark(var(--studio-accent-light), var(--studio-accent-dark));
+    --studio-accent-fg: light-dark(var(--studio-accent-fg-light), var(--studio-accent-fg-dark));
+  }
+}
+
+html.dark {
+  color-scheme: dark;
+  --studio-bg: var(--studio-bg-dark);
+  --studio-panel: var(--studio-panel-dark);
+  --studio-surface: var(--studio-surface-dark);
+  --studio-fg: var(--studio-fg-dark);
+  --studio-muted: var(--studio-muted-dark);
+  --studio-border: var(--studio-border-dark);
+  --studio-accent: var(--studio-accent-dark);
+  --studio-accent-fg: var(--studio-accent-fg-dark);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--studio-bg);
+  color: var(--studio-fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  accent-color: var(--studio-accent);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Studio Shell Layout */
+.studio-shell {
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--studio-panel);
+  border-bottom: 1px solid var(--studio-border);
+}
+
+.studio-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.studio-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--studio-border);
+  background: var(--studio-surface);
+  color: var(--studio-muted);
+}
+
+.studio-badge[data-state="valid"] {
+  color: #16a34a;
+  border-color: color-mix(in oklab, #16a34a 35%, var(--studio-border));
+}
+
+.studio-badge[data-state="error"] {
+  color: #ef4444;
+  border-color: color-mix(in oklab, #ef4444 35%, var(--studio-border));
+}
+
+.studio-badge[data-state="warn"] {
+  color: #d97706;
+  border-color: color-mix(in oklab, #d97706 35%, var(--studio-border));
+}
+
+.studio-main {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .studio-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: 340px 1fr;
+  }
+}
+
+.studio-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--studio-border);
+  background: var(--studio-panel);
+}
+
+.studio-workbench {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--studio-bg);
+}
+
+.studio-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--studio-border);
+  background: var(--studio-panel);
+}
+
+.studio-tablist {
+  display: flex;
+  gap: 4px;
+}
+
+.studio-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--studio-muted);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.studio-tab[aria-selected="true"] {
+  background: var(--studio-surface);
+  border-color: var(--studio-border);
+  color: var(--studio-fg);
+}
+
+.studio-btn {
+  appearance: none;
+  border: 1px solid var(--studio-border);
+  background: var(--studio-surface);
+  color: var(--studio-fg);
+  padding: 6px 11px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.studio-btn:hover {
+  border-color: var(--studio-accent);
+}
+
+.studio-btn.primary {
+  background: var(--studio-accent);
+  color: var(--studio-accent-fg);
+  border-color: transparent;
+}
+
+.studio-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.studio-select,
+.studio-input {
+  border: 1px solid var(--studio-border);
+  background: var(--studio-bg);
+  color: var(--studio-fg);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+/* Theme toggle icon visibility via color-scheme meta + prefers-color-scheme */
+.theme-toggle-btn .icon-to-light {
+  display: none;
+}
+.theme-toggle-btn .icon-to-dark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .theme-toggle-btn .icon-to-dark {
+    display: none;
+  }
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .theme-toggle-btn .icon-to-light {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .theme-toggle-btn .icon-to-dark,
+html.dark .theme-toggle-btn .icon-to-dark {
+  display: none;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .theme-toggle-btn .icon-to-light,
+html.dark .theme-toggle-btn .icon-to-light {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* XKmato Faithful Simulator Progressive CSS :has() 2-Column Sidebar Layout */
+.xkmato-shell {
+  background: var(--studio-panel);
+  color: var(--studio-fg);
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  overflow: hidden;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.xkmato-article-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 720px);
+  justify-content: center;
+  gap: 28px;
+  padding: 24px 20px;
+}
+
+@media (min-width: 900px) {
+  .xkmato-article-grid:has(amphibian-slot[data-salamanda-slot="blog.sidebar"][data-salamanda-mounted="true"]) {
+    grid-template-columns: minmax(0, 720px) 340px;
+    justify-content: center;
+  }
+}
+
+.xkmato-sidebar-rail {
+  display: none;
+}
+
+.xkmato-article-grid:has(amphibian-slot[data-salamanda-slot="blog.sidebar"][data-salamanda-mounted="true"]) .xkmato-sidebar-rail {
+  display: block;
+}
+
+amphibian-slot {
+  display: block;
+  width: 100%;
+}
+
+/* Responsive Data Table (SQLite Sidecar Explorer) */
+.table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(460px, 65vh);
+  container-type: inline-size;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  background: var(--studio-panel);
+}
+
+.sidecar-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+}
+
+.sidecar-table caption {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: var(--studio-muted);
+  border-bottom: 1px solid var(--studio-border);
+}
+
+.sidecar-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+  background: var(--studio-surface);
+}
+
+.sidecar-table th,
+.sidecar-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--studio-border);
+  vertical-align: top;
+}
+
+.sidecar-table tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background: var(--studio-panel);
+  font-weight: 600;
+}
+
+@container (width < 520px) {
+  .sidecar-table,
+  .sidecar-table thead,
+  .sidecar-table tbody,
+  .sidecar-table tr,
+  .sidecar-table th,
+  .sidecar-table td {
+    display: block;
+  }
+
+  .sidecar-table thead {
+    display: none;
+  }
+
+  .sidecar-table tr {
+    margin-block-end: 12px;
+    border: 1px solid var(--studio-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .sidecar-table tbody th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: var(--studio-surface);
+  }
+
+  .sidecar-table td::before {
+    content: attr(data-col-label) ": ";
+    font-weight: 600;
+    color: var(--studio-muted);
+  }
+}

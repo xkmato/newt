@@ -4,7 +4,7 @@
 
 While **Salamanda** is the Rust session-overlay & variant runtime (`:8080` Edge Proxy + `:7474` Control Plane), **Newt** is the standalone authoring tool and fail-open browser bridge that enables users to prompt, preview, validate, and publish custom UIs and platform features ("Limbs")—starting with **XKmato** while remaining portable to any web application via `/.well-known/amphibian.json`.
 
-## Workspace Packages (Milestones 0–2)
+## Workspace Packages & Apps (Milestones 0–3)
 
 - `@newt/contract` (`packages/contract`) — Salamanda Public Contract `v1.0.0` JSON schemas, TOML manifest parser/serializer, 100% parity offline `SAL-*` policy validator, and `SalamandaControlPlaneClient`.
 - `@newt/base-sdk` (`packages/base-sdk`) — Portable `AmphibianPlatformManifest` (`/.well-known/amphibian.json`) specification, semantic `--newt-*` CSS variable mapper, singleton/repeater slot model, LLM context formatter, and zero-config HTML/CSS landmark auto-inspector.
@@ -13,6 +13,8 @@ While **Salamanda** is the Rust session-overlay & variant runtime (`:8080` Edge 
 - `@newt/compiler` (`packages/compiler`) — 6-stage deterministic VFS compiler (`esbuild` TSX -> single-file `srcdoc` HTML with SHA-256 script-hash CSP, `sql.js` migration dry-runner, L2 `@host:` verifier, JSDOM smoke runner, and `MockSalamandaHostBroker`).
 - `@newt/db` (`packages/db`) — Zero-ops SQLite WAL persistence (`node:sqlite`) for projects, immutable VFS checkpoints, snapshot diffs, 1-click rollback, threads/messages, deployments, and gallery monetization entitlements.
 - `@newt/agents` (`packages/agents`) — Platform-agnostic multi-agent synthesis engine (Google Gemini default via `@google/genai`, plus Anthropic/OpenAI/Ollama), prompt-injection `Gatekeeper`, parallel `Architect`/`DataAndFunctions`/`UiCraftsman` state machine, and bounded `RepairAgent` self-healing loop.
+- `@newt/studio` (`apps/studio`) — Standalone Next.js Studio & `/api/v1/*` Daemon with SSE agent streaming, Pluggable Base Shell Simulator (faithful XKmato routes + progressive `:has()` sidebar, Standalone UI Canvas, and arbitrary `AmphibianPlatformManifest` bases), Code/Diff Editor, in-browser `sql.js` Sidecar Explorer, and Contract/Security Inspector.
+- `@newt/cli` (`packages/cli`) — Standalone `newt` CLI (`init`, `studio`, `dev`, `build`, `validate`, `inspect-url`, `doctor`).
 
 ## Quickstart
 
@@ -21,6 +23,15 @@ pnpm install
 pnpm build
 pnpm typecheck
 pnpm test
+pnpm --filter @newt/studio test:e2e
+
+# Launch Standalone Newt Studio (http://127.0.0.1:3100)
+pnpm studio
+
+# Or use the standalone CLI
+pnpm newt doctor
+pnpm newt init ./my-limb --base xkmato --slot blog.sidebar
+pnpm newt build ./my-limb
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the complete system architecture and `M0`–`M6` execution roadmap.
