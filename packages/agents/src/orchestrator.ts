@@ -1,4 +1,9 @@
-import { compileLimbVfs, type NewtVfs } from "@newt/compiler";
+import {
+  compileLimbVfs,
+  computePatchSha256Digest,
+  extractTouchedPathsFromUnifiedDiff,
+  type NewtVfs,
+} from "@newt/compiler";
 import { serializeLimbManifestToml } from "@newt/contract";
 import { evaluateBlueprintPolicy, evaluatePromptSafety } from "./gatekeeper.js";
 import {
@@ -6,6 +11,7 @@ import {
   buildDataAndFunctionsPrompts,
   buildRepairPrompts,
   buildUiCraftsmanPrompts,
+  buildVariantPatchPrompts,
 } from "./prompts.js";
 import {
   type AgentTurnEvent,
@@ -16,12 +22,14 @@ import {
   type OrchestratorRequest,
   type OrchestratorResult,
   RepairPatchBatchSchema,
+  VariantPatchBatchSchema,
 } from "./types.js";
 
 function synthesizeFallbackLimbToml(
   blueprint: LimbBlueprint,
   authorUid: string,
-  baseId: string
+  baseId: string,
+  patchMeta?: { diffFile: string; digest: string; touches: string[] }
 ): string {
   return serializeLimbManifestToml({
     limb: {
@@ -35,19 +43,38 @@ function synthesizeFallbackLimbToml(
     requires: {
       contract: ">=1.0",
       base: baseId,
-      slots: blueprint.uiMounts.map((u) => u.slot),
+      ...(blueprint.uiMounts.length > 0
+        ? { slots: blueprint.uiMounts.map((u) => u.slot) }
+        : {}),
     },
-    ui: blueprint.uiMounts.map((u) => ({
-      slot: u.slot,
-      route_pattern: u.routePattern,
-      component: u.compiledAsset,
-      isolation: u.isolation,
-    })),
-    functions: blueprint.functions.map((f) => ({
-      route: f.route,
-      method: f.method,
-      handler: f.sourceFile.replace(/^src\//, ""),
-    })),
+    ...(blueprint.uiMounts.length > 0
+      ? {
+          ui: blueprint.uiMounts.map((u) => ({
+            slot: u.slot,
+            route_pattern: u.routePattern,
+            component: u.compiledAsset,
+            isolation: u.isolation,
+          })),
+        }
+      : {}),
+    ...(blueprint.functions.length > 0
+      ? {
+          functions: blueprint.functions.map((f) => ({
+            route: f.route,
+            method: f.method,
+            handler: f.sourceFile.replace(/^src\//, ""),
+          })),
+        }
+      : {}),
+    ...(patchMeta
+      ? {
+          patch: {
+            diff_file: patchMeta.diffFile,
+            digest: patchMeta.digest,
+            touches: patchMeta.touches,
+          },
+        }
+      : {}),
     permissions: {
       data_read: blueprint.permissions.dataRead,
       data_write: [],
@@ -140,30 +167,40 @@ export async function runNewtOrchestrator(
     }
     emit({ type: "blueprint.ready", blueprint });
 
-    // 3. Parallel Synthesis Fan-Out (`DataAndFunctionsAgent` + `UiCraftsmanAgent`)
+    // 3. Parallel Synthesis Fan-Out (`DataAndFunctionsAgent` + `UiCraftsmanAgent` + optional `VariantPatchAgent`)
+    const isL3Variant = blueprint.level === 3;
+    const needsUiAgent = blueprint.uiMounts.length > 0;
     const needsDataAgent =
-      blueprint.mode === "salamanda-limb" ||
-      blueprint.sidecar.scope !== "none" ||
-      blueprint.functions.length > 0;
+      !isL3Variant &&
+      (blueprint.mode === "salamanda-limb" ||
+        blueprint.sidecar.scope !== "none" ||
+        blueprint.functions.length > 0);
+
+    const activeAgents: Array<"data-functions" | "ui-craftsman" | "variant-patch"> = [];
+    if (needsDataAgent) activeAgents.push("data-functions");
+    if (needsUiAgent) activeAgents.push("ui-craftsman");
+    if (isL3Variant) activeAgents.push("variant-patch");
 
     emit({
       type: "synthesis.started",
-      agents: needsDataAgent ? ["data-functions", "ui-craftsman"] : ["ui-craftsman"],
+      agents: activeAgents,
     });
 
-    const uiPromise = req.provider
-      .generateJson({
-        role: "ui-craftsman",
-        ...buildUiCraftsmanPrompts({
-          blueprint,
-          platformManifest: req.platformManifest,
-          existingVfs: vfs,
-        }),
-      })
-      .then((res) => {
-        recordUsage(res.usage);
-        return FileSynthesisBatchSchema.parse(res.data);
-      });
+    const uiPromise = needsUiAgent
+      ? req.provider
+          .generateJson({
+            role: "ui-craftsman",
+            ...buildUiCraftsmanPrompts({
+              blueprint,
+              platformManifest: req.platformManifest,
+              existingVfs: vfs,
+            }),
+          })
+          .then((res) => {
+            recordUsage(res.usage);
+            return FileSynthesisBatchSchema.parse(res.data);
+          })
+      : Promise.resolve(null);
 
     const dataPromise = needsDataAgent
       ? req.provider
@@ -181,7 +218,29 @@ export async function runNewtOrchestrator(
           })
       : Promise.resolve(null);
 
-    const [dataBatch, uiBatch] = await Promise.all([dataPromise, uiPromise]);
+    const patchPromise = isL3Variant
+      ? req.provider
+          .generateJson({
+            role: "variant-patch",
+            ...buildVariantPatchPrompts({
+              blueprint,
+              platformManifest: req.platformManifest,
+              baseSpec: req.baseSpec,
+              baseSourceFiles: req.baseSourceFiles,
+              rebaseConflict: req.rebaseConflict,
+            }),
+          })
+          .then((res) => {
+            recordUsage(res.usage);
+            return VariantPatchBatchSchema.parse(res.data);
+          })
+      : Promise.resolve(null);
+
+    const [dataBatch, uiBatch, patchBatch] = await Promise.all([
+      dataPromise,
+      uiPromise,
+      patchPromise,
+    ]);
 
     const writtenPaths: string[] = [];
     let wroteLimbToml = false;
@@ -192,23 +251,49 @@ export async function runNewtOrchestrator(
         if (f.path === "limb.toml") wroteLimbToml = true;
       }
     }
+
+    let synthesizedPatchMeta:
+      | { diffFile: string; digest: string; touches: string[] }
+      | undefined;
+
+    if (patchBatch) {
+      const diffFile = patchBatch.diffFile || "patches/variant.patch";
+      const normalizedDiff = patchBatch.diff.endsWith("\n")
+        ? patchBatch.diff
+        : `${patchBatch.diff}\n`;
+      vfs[diffFile] = normalizedDiff;
+      writtenPaths.push(diffFile);
+
+      const extractedTouches = extractTouchedPathsFromUnifiedDiff(normalizedDiff);
+      const touches =
+        extractedTouches.length > 0 ? extractedTouches : (patchBatch.touches ?? []);
+      synthesizedPatchMeta = {
+        diffFile,
+        digest: computePatchSha256Digest(normalizedDiff),
+        touches,
+      };
+    }
+
     if (!wroteLimbToml) {
       vfs["limb.toml"] = synthesizeFallbackLimbToml(
         blueprint,
         req.authorUid,
-        req.platformManifest.base.id
+        req.platformManifest.base.id,
+        synthesizedPatchMeta
       );
       writtenPaths.push("limb.toml");
     }
-    for (const f of uiBatch.files) {
-      vfs[f.path] = f.content;
-      writtenPaths.push(f.path);
+    if (uiBatch) {
+      for (const f of uiBatch.files) {
+        vfs[f.path] = f.content;
+        writtenPaths.push(f.path);
+      }
     }
 
     emit({
       type: "vfs.updated",
       paths: Array.from(new Set(writtenPaths)),
-      summary: uiBatch.summary,
+      summary: patchBatch?.summary ?? uiBatch?.summary ?? "Synthesized project files",
     });
 
     // 4. Deterministic 6-Stage Compiler Verification

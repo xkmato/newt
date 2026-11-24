@@ -2,9 +2,9 @@ import {
   type AmphibianPlatformManifest,
   formatPlatformContextForAgent,
 } from "@newt/base-sdk";
-import type { Diagnostic } from "@newt/contract";
+import type { BaseSpec, Diagnostic } from "@newt/contract";
 import type { NewtVfs } from "@newt/compiler";
-import type { LimbBlueprint } from "./types.js";
+import type { LimbBlueprint, RebaseConflictContext } from "./types.js";
 
 const SALAMANDA_CONTRACT_RULES = `
 ## Salamanda Public Contract v1.0.0 Rules
@@ -136,6 +136,57 @@ export function buildRepairPrompts(params: {
     `Diagnostics to resolve:\n${JSON.stringify(params.diagnostics, null, 2)}`,
     `Current Project VFS:\n${fileDump}`,
   ].join("\n\n");
+
+  return { systemPrompt, userPrompt };
+}
+
+export function buildVariantPatchPrompts(params: {
+  blueprint: LimbBlueprint;
+  platformManifest: AmphibianPlatformManifest;
+  baseSpec: BaseSpec;
+  baseSourceFiles?: Record<string, string>;
+  rebaseConflict?: RebaseConflictContext;
+}): { systemPrompt: string; userPrompt: string } {
+  const allow = params.baseSpec.variants?.edit_allow ?? ["src/**", "app/**"];
+  const deny = Array.from(
+    new Set([
+      ".env*",
+      "firestore.rules",
+      "firebase.json",
+      "salamanda.toml",
+      ...(params.baseSpec.variants?.edit_deny ?? []),
+    ])
+  );
+
+  const systemPrompt = [
+    "You are Newt's VariantPatchAgent (Level 3 Full-Source Variant). Synthesize a minimal, clean unified git diff (`patches/variant.patch`) applying cleanly via `git apply`.",
+    `Target base id: "${params.platformManifest.base.id}".`,
+    `Allowed edit paths (edit_allow): [${allow.join(", ")}].`,
+    `STRICTLY FORBIDDEN paths (edit_deny, SAL-EDIT-001): [${deny.join(", ")}]. Never touch secrets, security rules, firebase.json, or salamanda.toml.`,
+    'Return strictly valid JSON: { "summary": string, "diffFile": "patches/variant.patch", "diff": string, "touches": string[] }.',
+  ].join("\n\n");
+
+  const sourceDump = Object.entries(params.baseSourceFiles ?? {})
+    .map(([p, c]) => `=== BASE FILE: ${p} ===\n${c}`)
+    .join("\n\n");
+
+  const conflictBlock = params.rebaseConflict
+    ? [
+        `REBASE CONFLICT RECOVERY ON UPSTREAM COMMIT ${params.rebaseConflict.baseCommit}:`,
+        `Conflict reason: ${params.rebaseConflict.conflictReason}`,
+        ...Object.entries(params.rebaseConflict.upstreamFiles ?? {}).map(
+          ([p, c]) => `=== UPSTREAM FILE: ${p} ===\n${c}`
+        ),
+      ].join("\n\n")
+    : null;
+
+  const userPrompt = [
+    `Blueprint JSON:\n${JSON.stringify(params.blueprint, null, 2)}`,
+    sourceDump ? `Base Source Files:\n${sourceDump}` : null,
+    conflictBlock,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   return { systemPrompt, userPrompt };
 }

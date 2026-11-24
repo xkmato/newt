@@ -669,6 +669,52 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
       const preferredSlot = extractPreferredSlot(req.userPrompt);
       const manifest = this.manifestResolver?.(baseId) ?? null;
 
+      const l3AllowedBySystem = /Enabled Extension Levels:\s*\[[^\]]*3[^\]]*\]/i.test(
+        req.systemPrompt
+      );
+      const wantsL3 =
+        l3AllowedBySystem &&
+        /\b(level\s*3|l3|variant|layout\s+patch|source\s+patch|rebase|full[- ]source|root\s+layout)\b/i.test(
+          intent
+        );
+
+      if (wantsL3) {
+        const displayName = "Custom Layout Variant";
+        const limbId = slugify(displayName, "custom-layout-variant");
+        return {
+          data: {
+            mode: "salamanda-limb",
+            limbId,
+            displayName,
+            description: intent.slice(0, 200) || "Level 3 full-source layout variant",
+            level: 3,
+            rationale:
+              "Level 3 full-source variant gate is enabled and the requested layout edit modifies base source templates.",
+            uiMounts: [],
+            patch: {
+              diffFile: "patches/variant.patch",
+              touches: ["app/page.html"],
+              summary: "Minimal unified diff updating base layout heading",
+            },
+            sidecar: { scope: "none", tables: [] },
+            functions: [],
+            permissions: {
+              dataRead: [],
+              egress: [],
+              maxMemoryMb: 256,
+              maxCpuMs: 2000,
+            },
+            designSpec: {
+              layoutPattern: "source-variant",
+              semanticTokensUsed: ["--newt-bg", "--newt-fg"],
+              states: ["populated"],
+              accessibilityNotes: "Preserves semantic landmarks in base template",
+            },
+          } as T,
+          usage,
+        };
+      }
+
       const isStandalone = baseId === "standalone" || /standalone|widget|pomodoro|focus timer/i.test(intent) && baseId === "standalone";
       let slot =
         preferredSlot ??
@@ -873,6 +919,40 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
         data: {
           summary: `Synthesized ${bp.displayName} UI component (${bp.entryFile})`,
           files: [{ path: bp.entryFile, content: code }],
+        } as T,
+        usage,
+      };
+    }
+
+    if (req.role === "variant-patch") {
+      // Extract either upstream conflict file or base source file so generated unified diff always applies cleanly via `git apply`!
+      const fileMatch =
+        req.userPrompt.match(/=== UPSTREAM FILE:\s*([^\s=]+)\s*===\n([\s\S]*?)(?:\n=== |$)/) ??
+        req.userPrompt.match(/=== BASE FILE:\s*([^\s=]+)\s*===\n([\s\S]*?)(?:\n=== |$)/);
+      const targetPath = fileMatch?.[1]?.trim() ?? "src/app/page.tsx";
+      const rawContent = (fileMatch?.[2] ?? "<h1>Vanilla Base Layout</h1>\n").trimEnd();
+      const lines = rawContent.split("\n");
+      const firstLine = lines[0] ?? "<h1>Vanilla Base Layout</h1>";
+      const patchedFirstLine = firstLine.includes("<h1")
+        ? firstLine.replace(/>([^<]*)</, ">Custom L3 Layout Variant — $1<")
+        : `/* Newt L3 Variant */ ${firstLine}`;
+
+      const diffLines = [
+        `--- a/${targetPath}`,
+        `+++ b/${targetPath}`,
+        `@@ -1,${lines.length} +1,${lines.length} @@`,
+        `-${firstLine}`,
+        `+${patchedFirstLine}`,
+        ...lines.slice(1).map((l) => ` ${l}`),
+        "",
+      ];
+
+      return {
+        data: {
+          summary: `Synthesized minimal Level 3 unified diff for ${targetPath}`,
+          diffFile: "patches/variant.patch",
+          diff: diffLines.join("\n"),
+          touches: [targetPath],
         } as T,
         usage,
       };

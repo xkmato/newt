@@ -53,6 +53,13 @@ export interface CompiledFunctionDescriptor {
   operations: HostApiCall[];
 }
 
+export interface CompiledVariantPatch {
+  diffFile: string;
+  digest: string;
+  touches: string[];
+  diff: string;
+}
+
 export interface CompiledLimbBundle {
   valid: boolean;
   limbId: string;
@@ -61,6 +68,8 @@ export interface CompiledLimbBundle {
   /** Ready-to-upload `assets` map for Salamanda `POST /v1/limbs` */
   assets: Record<string, string>;
   functions: CompiledFunctionDescriptor[];
+  /** Verified Level 3 unified git diff & digest (populated when `level = 3`) */
+  variantPatch?: CompiledVariantPatch;
   diagnostics: Diagnostic[];
   requiresEgressConsent: boolean;
   unapprovedEgressHosts: string[];

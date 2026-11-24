@@ -8,6 +8,7 @@ const ChatBodySchema = z.object({
   prompt: z.string().min(1).max(8000),
   selectedSlot: z.string().min(1).optional(),
   approvedEgressHosts: z.array(z.string()).optional(),
+  baseSourceFiles: z.record(z.string()).optional(),
 });
 
 function formatSseFrame(eventName: string, data: unknown): Uint8Array {
@@ -45,6 +46,7 @@ export async function POST(
           authorUid,
           selectedSlot: body.selectedSlot,
           approvedEgressHosts: body.approvedEgressHosts,
+          baseSourceFiles: body.baseSourceFiles,
           onEvent: (event) => {
             controller.enqueue(formatSseFrame(event.type, event));
           },

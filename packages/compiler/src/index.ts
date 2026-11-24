@@ -4,4 +4,5 @@ export * from "./function-compiler.js";
 export * from "./ui-bundler.js";
 export * from "./smoke-runner.js";
 export * from "./mock-broker.js";
+export * from "./variant-patch.js";
 export * from "./compiler.js";

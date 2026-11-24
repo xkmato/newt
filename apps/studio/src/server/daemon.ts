@@ -4,6 +4,7 @@ import {
   type AgentTurnEvent,
   type LlmProvider,
   type OrchestratorResult,
+  type RebaseConflictContext,
   runNewtOrchestrator,
 } from "@newt/agents";
 import type { BasePack } from "@newt/base-sdk";
@@ -19,6 +20,7 @@ import {
 } from "@newt/db";
 import { BaseRegistry } from "./base-registry";
 import { resolveStudioLlmProvider } from "./studio-provider";
+import { VariantManager } from "./variant-manager";
 
 function sanitizeLimbId(raw: string): string {
   const clean = raw
@@ -117,6 +119,7 @@ export interface StudioDaemonOptions {
 export class StudioDaemon {
   readonly db: NewtDatabase;
   readonly bases: BaseRegistry;
+  readonly variants: VariantManager;
   readonly dbPath: string;
   private readonly overrideProvider?: LlmProvider;
 
@@ -127,6 +130,7 @@ export class StudioDaemon {
       path.join(os.homedir(), ".newt", "studio.sqlite");
     this.db = this.dbPath === ":memory:" ? NewtDatabase.openInMemory() : NewtDatabase.open(this.dbPath);
     this.bases = new BaseRegistry();
+    this.variants = new VariantManager();
     this.overrideProvider = options.provider;
   }
 
@@ -342,6 +346,9 @@ export class StudioDaemon {
     authorUid?: string;
     selectedSlot?: string;
     approvedEgressHosts?: string[];
+    enableL3?: boolean;
+    baseSourceFiles?: Record<string, string>;
+    rebaseConflict?: RebaseConflictContext;
     onEvent?: (event: AgentTurnEvent) => void;
   }): Promise<{
     result: OrchestratorResult;
@@ -368,17 +375,51 @@ export class StudioDaemon {
 
     const current = this.db.getCurrentSnapshot(project.id);
     const { provider } = this.getProvider();
+    const l3GateOpen = params.enableL3 ?? process.env.NEWT_ENABLE_L3_VARIANTS === "1";
+
+    // When NEWT_ENABLE_L3_VARIANTS is open and the base supports variants, advertise level 3
+    const effectiveManifest =
+      l3GateOpen && !basePack.manifest.runtime.allow_levels.includes(3)
+        ? {
+            ...basePack.manifest,
+            runtime: {
+              ...basePack.manifest.runtime,
+              allow_levels: [...basePack.manifest.runtime.allow_levels, 3] as Array<1 | 2 | 3>,
+            },
+          }
+        : basePack.manifest;
+    const effectiveBaseSpec =
+      l3GateOpen && !basePack.baseSpec.extensions.allow_levels.includes(3)
+        ? {
+            ...basePack.baseSpec,
+            extensions: {
+              ...basePack.baseSpec.extensions,
+              allow_levels: [...basePack.baseSpec.extensions.allow_levels, 3] as Array<1 | 2 | 3>,
+            },
+          }
+        : basePack.baseSpec;
+
+    let baseSourceFiles = params.baseSourceFiles;
+    if (l3GateOpen && !baseSourceFiles && process.env.NEWT_BASE_REPO_DIR) {
+      baseSourceFiles = this.variants.readBaseFiles(process.env.NEWT_BASE_REPO_DIR, [
+        "src/app/page.tsx",
+        "src/app/layout.tsx",
+        "app/page.html",
+      ]);
+    }
 
     const result = await runNewtOrchestrator({
       prompt: params.prompt,
       authorUid: params.authorUid ?? project.ownerUid,
-      platformManifest: basePack.manifest,
-      baseSpec: basePack.baseSpec,
+      platformManifest: effectiveManifest,
+      baseSpec: effectiveBaseSpec,
       provider,
       existingVfs: current?.files,
       selectedSlot: params.selectedSlot,
       approvedEgressHosts: params.approvedEgressHosts,
-      enableL3: process.env.NEWT_ENABLE_L3_VARIANTS === "1",
+      enableL3: l3GateOpen,
+      baseSourceFiles,
+      rebaseConflict: params.rebaseConflict,
       runSmokeTest: true,
       onEvent: params.onEvent,
     });

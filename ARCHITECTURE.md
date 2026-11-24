@@ -413,7 +413,7 @@ flowchart LR
   *Accept:* E2E suite proves Newt authors and mounts working Limbs on two completely different web stacks/auth providers without modifying a single line of Newt core.
 
 ### Milestone 6 (Open Gate — Ready When Triggered): Level 3 Full-Source Variant Authoring
-- [ ] **Task 6.1 — Open the Level 3 (`level = 3`) Variant Gate in `@newt/agents`, `@newt/compiler`, & Studio UI:**
+- [x] **Task 6.1 — Open the Level 3 (`level = 3`) Variant Gate in `@newt/agents`, `@newt/compiler`, & Studio UI:**
   Flip `NEWT_ENABLE_L3_VARIANTS` when a base advertises `3` in `GET /v1/capabilities` (`allow_levels`):
   1. Enable `VariantPatchAgent` to synthesize minimal unified git diffs (`patches/variant.patch`) with `sha256` digests and `touches` lists in `[patch]`.
   2. Enforce pre-flight `edit_allow` / `edit_deny` verification (`SAL-EDIT-001` — blocking `.env*`, `firestore.rules`, `firebase.json`, `salamanda.toml`).

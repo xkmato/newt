@@ -9,6 +9,7 @@ import { runHeadlessUiSmokeCheck } from "./smoke-runner.js";
 import { verifySidecarMigrations } from "./sql-verifier.js";
 import type { CompiledLimbBundle, CompileOptions, NewtVfs } from "./types.js";
 import { bundleUiMountToSrcdoc } from "./ui-bundler.js";
+import { verifyLevel3VariantPatch } from "./variant-patch.js";
 
 /**
  * Orchestrates the 6-stage deterministic Newt compilation & verification pipeline:
@@ -68,6 +69,13 @@ export async function compileLimbVfs(
   diagnostics.push(...fnRes.diagnostics);
   Object.assign(assets, fnRes.functionAssets);
 
+  // Stage 3b: Level 3 Source Variant Patch Verification (`SAL-EDIT-001`, sha256 digest & touches)
+  const patchRes = verifyLevel3VariantPatch(vfs, manifest, options.baseSpec);
+  diagnostics.push(...patchRes.diagnostics);
+  if (patchRes.patch) {
+    assets[patchRes.patch.diffFile] = patchRes.patch.diff;
+  }
+
   // Stage 4 & Stage 5: UI srcdoc bundling + headless JSDOM smoke check
   const runSmoke = options.runSmokeTest ?? true;
   for (const uiMount of manifest.ui ?? []) {
@@ -123,6 +131,7 @@ export async function compileLimbVfs(
     manifestToml,
     assets,
     functions: fnRes.descriptors,
+    variantPatch: patchRes.patch,
     diagnostics,
     requiresEgressConsent,
     unapprovedEgressHosts,

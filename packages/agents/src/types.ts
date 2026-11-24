@@ -11,7 +11,7 @@ export interface LlmUsage {
 }
 
 export interface LlmGenerateJsonRequest {
-  role: "architect" | "data-functions" | "ui-craftsman" | "repair";
+  role: "architect" | "data-functions" | "ui-craftsman" | "variant-patch" | "repair";
   systemPrompt: string;
   userPrompt: string;
   temperature?: number;
@@ -49,7 +49,14 @@ export const LimbBlueprintSchema = z.object({
         isolation: z.enum(["iframe", "same-origin-personal"]).default("iframe"),
       })
     )
-    .min(1),
+    .default([]),
+  patch: z
+    .object({
+      diffFile: z.string().default("patches/variant.patch"),
+      touches: z.array(z.string().min(1)).default([]),
+      summary: z.string().default("Minimal unified git diff for Level 3 variant"),
+    })
+    .optional(),
   sidecar: z.object({
     scope: z.enum(["none", "personal", "shared", "scratch"]),
     tables: z
@@ -103,6 +110,15 @@ export const FileSynthesisBatchSchema = z.object({
 
 export type FileSynthesisBatch = z.infer<typeof FileSynthesisBatchSchema>;
 
+export const VariantPatchBatchSchema = z.object({
+  summary: z.string().default("Synthesized Level 3 unified git patch"),
+  diffFile: z.string().default("patches/variant.patch"),
+  diff: z.string().min(1),
+  touches: z.array(z.string().min(1)).optional(),
+});
+
+export type VariantPatchBatch = z.infer<typeof VariantPatchBatchSchema>;
+
 export const RepairPatchBatchSchema = z.object({
   diagnosis: z.string().min(1),
   edits: z
@@ -121,12 +137,21 @@ export type AgentTurnEvent =
   | { type: "gatekeeper.passed"; sanitizedPrompt: string }
   | { type: "gatekeeper.blocked"; reason: string; code: string }
   | { type: "blueprint.ready"; blueprint: LimbBlueprint }
-  | { type: "synthesis.started"; agents: Array<"data-functions" | "ui-craftsman"> }
+  | {
+      type: "synthesis.started";
+      agents: Array<"data-functions" | "ui-craftsman" | "variant-patch">;
+    }
   | { type: "vfs.updated"; paths: string[]; summary: string }
   | { type: "compile.result"; valid: boolean; diagnostics: Diagnostic[] }
   | { type: "repair.attempt"; attempt: number; maxAttempts: number; errorCount: number }
   | { type: "turn.complete"; valid: boolean; repairAttempts: number; requiresEgressConsent: boolean }
   | { type: "turn.error"; message: string };
+
+export interface RebaseConflictContext {
+  baseCommit: string;
+  conflictReason: string;
+  upstreamFiles?: Record<string, string>;
+}
 
 export interface OrchestratorRequest {
   prompt: string;
@@ -138,8 +163,12 @@ export interface OrchestratorRequest {
   selectedSlot?: string;
   isSharedPublication?: boolean;
   approvedEgressHosts?: string[];
-  /** Gated behind Task 6.1 — defaults to `false` (L1+L2 only in v1) */
+  /** Opened in Task 6.1 — requires both `enableL3: true` AND base `allow_levels` including `3` */
   enableL3?: boolean;
+  /** Optional snapshot of base source files for `VariantPatchAgent` context */
+  baseSourceFiles?: Record<string, string>;
+  /** Optional rebase conflict context when self-repairing a `Stale` Level 3 Variant */
+  rebaseConflict?: RebaseConflictContext;
   maxRepairAttempts?: number;
   runSmokeTest?: boolean;
   onEvent?: (event: AgentTurnEvent) => void;

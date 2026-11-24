@@ -15,8 +15,9 @@ import { CodeDiffEditor } from "./CodeDiffEditor";
 import { ContractInspector } from "./ContractInspector";
 import { SidecarExplorer } from "./SidecarExplorer";
 import { type ResolvedTheme, ThemeToggle } from "./ThemeToggle";
+import { VariantWorkbench } from "./VariantWorkbench";
 
-type WorkbenchTab = "preview" | "code" | "sidecar" | "contract";
+type WorkbenchTab = "preview" | "code" | "sidecar" | "contract" | "variant";
 
 const STARTER_PROMPTS: Record<string, Array<{ label: string; prompt: string; slot?: string }>> = {
   xkmato: [
@@ -834,6 +835,9 @@ export function StudioWorkspace() {
                   { id: "code", label: "Code & Diff" },
                   { id: "sidecar", label: "SQLite Sidecar" },
                   { id: "contract", label: "Contract & Security" },
+                  ...(health?.l3Enabled || activeBundle?.variantPatch
+                    ? [{ id: "variant" as const, label: "Level 3 Variant" }]
+                    : []),
                 ] as const
               ).map((item) => (
                 <button
@@ -904,6 +908,19 @@ export function StudioWorkspace() {
                 ) : null}
                 <ContractInspector compiled={activeBundle} onApproveEgress={handleApproveEgress} />
               </>
+            ) : null}
+
+            {tab === "variant" ? (
+              <VariantWorkbench
+                projectId={activeProjectId}
+                compiled={activeBundle}
+                l3Enabled={Boolean(health?.l3Enabled)}
+                onProjectUpdated={async () => {
+                  if (activeProjectId) {
+                    await loadProjectDetail(activeProjectId);
+                  }
+                }}
+              />
             ) : null}
           </div>
         </section>

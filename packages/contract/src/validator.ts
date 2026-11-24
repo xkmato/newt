@@ -221,9 +221,16 @@ export function validateLimbManifest(
   // 7. Check Level 3 source patch edit policy (`SAL-EDIT-001` & `SAL-PATCH-001`)
   if (manifest.limb.level === 3) {
     if (manifest.patch) {
-      const denyPatterns = base.variants?.edit_deny ?? [];
+      const defaultDeny = [".env*", "firestore.rules", "firebase.json", "salamanda.toml"];
+      const denyPatterns = Array.from(
+        new Set([...defaultDeny, ...(base.variants?.edit_deny ?? [])])
+      );
+      const allowPatterns = base.variants?.edit_allow ?? [];
       for (const touched of manifest.patch.touches) {
-        const denied = denyPatterns.some((pat) => matchesGlobPrefix(touched, pat));
+        const normalized = touched.replace(/^\.?\//, "");
+        const hasTraversal = normalized.split("/").includes("..");
+        const denied =
+          hasTraversal || denyPatterns.some((pat) => matchesGlobPrefix(normalized, pat));
         if (denied) {
           diagnostics.push({
             code: "SAL-EDIT-001",
@@ -233,6 +240,20 @@ export function validateLimbManifest(
             hint: "Variants cannot modify secrets, security rules, or salamanda.toml.",
             suggested_fix: `Revert changes to '${touched}'.`,
           });
+          continue;
+        }
+        if (allowPatterns.length > 0) {
+          const allowed = allowPatterns.some((pat) => matchesGlobPrefix(normalized, pat));
+          if (!allowed) {
+            diagnostics.push({
+              code: "SAL-EDIT-001",
+              severity: "error",
+              path: "patch.touches",
+              message: `Patch modifies file '${touched}' outside base edit_allow policy [${allowPatterns.join(", ")}].`,
+              hint: "Level 3 patches may only touch files allowed by [variants].edit_allow.",
+              suggested_fix: `Restrict patch edits to allowed paths (${allowPatterns.join(", ")}).`,
+            });
+          }
         }
       }
     } else {
