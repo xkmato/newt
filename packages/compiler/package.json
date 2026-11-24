@@ -1,0 +1,29 @@
+{
+  "name": "@newt/compiler",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@newt/base-sdk": "workspace:*",
+    "@newt/contract": "workspace:*",
+    "@newt/ui-sdk": "workspace:*",
+    "esbuild": "^0.25.0",
+    "jsdom": "^26.0.0",
+    "preact": "^10.26.4",
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@newt/base-xkmato": "workspace:*"
+  }
+}

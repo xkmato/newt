@@ -355,16 +355,16 @@ flowchart LR
   *Accept:* Validates cleanly against `@newt/contract` and `@newt/base-sdk`.
 
 ### Milestone 1: `@newt/ui-sdk`, Deterministic Limb Compiler & Browser Host Simulator
-- [ ] **Task 1.1 — `@newt/ui-sdk` Portable Client Runtime (`< 3 KB` gzipped):**
+- [x] **Task 1.1 — `@newt/ui-sdk` Portable Client Runtime (`< 3 KB` gzipped):**
   Implement `useSlotContext` (supporting both singleton and repeater `data-*` props), `usePlatformTheme` (`--newt-*` semantic CSS variables), `useSidecarQuery`, `executeSidecar`, `readCanonical`, `invokeLimbFunction` (broker-proxied for `origin: null` iframes), and `autoResizeFrame`.
   *Accept:* Bundle `< 3 KB` gzipped; unit tests pass for RPC correlation, timeouts, theme updates, and resize clamping.
-- [ ] **Task 1.2 — `@newt/compiler` Single-File `srcdoc` Bundler:**
+- [x] **Task 1.2 — `@newt/compiler` Single-File `srcdoc` Bundler:**
   Build in-memory `esbuild` pipeline compiling `src/ui/*.tsx` + Preact + `@newt/ui-sdk` + mapped host fallback tokens into self-contained `ui/*.html` bundles with strict inline CSP and `< 150 KB` size budget (`NEWT-UI-*`).
   *Accept:* TSX component compiles in `<100ms` into one standalone HTML string with zero external script/style URLs.
-- [ ] **Task 1.3 — `@newt/compiler` Wasm SQLite Dry-Runner & L2 Handler Lowering:**
+- [x] **Task 1.3 — `@newt/compiler` Wasm SQLite Dry-Runner & L2 Handler Lowering:**
   Validate `migrations/*.sql` in `sql.js` (`NEWT-SQL-*`, blocking `ATTACH`/`PRAGMA`) and verify/emit L2 `functions/*.ts` against Salamanda `v1.0`'s `transpile_and_guard_ts` + `// @host:` rules (`NEWT-FN-*`).
   *Accept:* Rejects `process.env`/`eval(` escapes and bad SQL; compiles L2 poll and TTS handlers cleanly.
-- [ ] **Task 1.4 — Headless JSDOM Smoke Runner & Multi-Platform `MockSalamandaHostBroker`:**
+- [x] **Task 1.4 — Headless JSDOM Smoke Runner & Multi-Platform `MockSalamandaHostBroker`:**
   Build Stage 5 JSDOM mount smoke verifier (`NEWT-RUN-*`) and in-browser `MockSalamandaHostBroker` (`sql.js` + any `AmphibianPlatformManifest`'s fixtures) supporting both singleton and infinite-scroll repeater slots.
   *Accept:* Automated test compiles a repeater `micropost.footer` Limb and a singleton `blog.sidebar` Limb, mounts both against `MockSalamandaHostBroker`, and verifies independent SQLite state per `post-id`.
 

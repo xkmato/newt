@@ -1,0 +1,68 @@
+import type { AmphibianPlatformManifest } from "@newt/base-sdk";
+import type {
+  BaseSpec,
+  Diagnostic,
+  LimbManifest,
+  SidecarScope,
+} from "@newt/contract";
+
+/**
+ * In-memory Virtual File System mapping relative paths (e.g. `limb.toml`,
+ * `src/ui/Notes.tsx`, `src/functions/vote.ts`, `migrations/001_init.sql`) to UTF-8 text.
+ */
+export type NewtVfs = Record<string, string>;
+
+export interface CompileOptions {
+  platformManifest: AmphibianPlatformManifest;
+  baseSpec: BaseSpec;
+  isSharedPublication?: boolean;
+  /** Egress hostnames already approved by the user in prior checkpoints */
+  approvedEgressHosts?: string[];
+  /** Defaults to `true` — mounts compiled `srcdoc` in headless JSDOM to catch runtime crashes */
+  runSmokeTest?: boolean;
+  /** Maximum uncompressed HTML bundle size per UI slot (defaults to 150 KB = 153600 bytes) */
+  maxBundleBytes?: number;
+}
+
+export type HostApiCall =
+  | {
+      host_call: "sidecar_execute";
+      scope: SidecarScope;
+      sql_template: string;
+    }
+  | {
+      host_call: "sidecar_query";
+      scope: SidecarScope;
+      sql_template: string;
+    }
+  | {
+      host_call: "canonical_read";
+      collection: string;
+      doc_id: string;
+    }
+  | {
+      host_call: "http_fetch";
+      url: string;
+    };
+
+export interface CompiledFunctionDescriptor {
+  route: string;
+  method: string;
+  handlerPath: string;
+  tsSource: string;
+  operations: HostApiCall[];
+}
+
+export interface CompiledLimbBundle {
+  valid: boolean;
+  limbId: string;
+  manifest?: LimbManifest;
+  manifestToml: string;
+  /** Ready-to-upload `assets` map for Salamanda `POST /v1/limbs` */
+  assets: Record<string, string>;
+  functions: CompiledFunctionDescriptor[];
+  diagnostics: Diagnostic[];
+  requiresEgressConsent: boolean;
+  unapprovedEgressHosts: string[];
+  bundleSizesBytes: Record<string, number>;
+}

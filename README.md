@@ -4,11 +4,13 @@
 
 While **Salamanda** is the Rust session-overlay & variant runtime (`:8080` Edge Proxy + `:7474` Control Plane), **Newt** is the standalone authoring tool and fail-open browser bridge that enables users to prompt, preview, validate, and publish custom UIs and platform features ("Limbs")—starting with **XKmato** while remaining portable to any web application via `/.well-known/amphibian.json`.
 
-## Workspace Packages (Milestone 0)
+## Workspace Packages (Milestones 0 & 1)
 
 - `@newt/contract` (`packages/contract`) — Salamanda Public Contract `v1.0.0` JSON schemas, TOML manifest parser/serializer, 100% parity offline `SAL-*` policy validator, and `SalamandaControlPlaneClient`.
 - `@newt/base-sdk` (`packages/base-sdk`) — Portable `AmphibianPlatformManifest` (`/.well-known/amphibian.json`) specification, semantic `--newt-*` CSS variable mapper, singleton/repeater slot model, LLM context formatter, and zero-config HTML/CSS landmark auto-inspector.
 - `@newt/base-xkmato` (`packages/base-xkmato`) — Ground-truth Base Target Pack for XKmato (routes, 9 slots, `shadcn/ui` `oklch` theme tokens, `BlogPost` / `Micropost` canonical schemas, and realistic TipTap essay fixtures).
+- `@newt/ui-sdk` (`packages/ui-sdk`) — Ultra-lightweight (`< 3 KB` gzipped) client runtime bundled into generated UIs (`useSlotContext`, `usePlatformTheme`, `useSidecarQuery`, `executeSidecar`, `readCanonical`, broker-proxied `invokeLimbFunction`, and `autoResizeFrame`).
+- `@newt/compiler` (`packages/compiler`) — 6-stage deterministic VFS compiler (`esbuild` TSX -> single-file `srcdoc` HTML with SHA-256 script-hash CSP, `sql.js` migration dry-runner, L2 `@host:` verifier, JSDOM smoke runner, and `MockSalamandaHostBroker`).
 
 ## Quickstart
 
