@@ -1,0 +1,226 @@
+--- a/crates/salamanda-overlay/src/lib.rs
++++ b/crates/salamanda-overlay/src/lib.rs
+@@ -18,12 +18,18 @@
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct ResolvedSlotPayload {
+     pub limb_id: String,
+     pub slot_id: String,
++    #[serde(default = "default_cardinality")]
++    pub cardinality: String,
+     #[serde(default = "default_route_pattern")]
+     pub route_pattern: String,
+     #[serde(default = "default_placement")]
+     pub placement: String,
+     pub html_content: String,
+     pub isolation: UiIsolationMode,
+     #[serde(default)]
+     pub allowed_sidecar_scope: String,
+     #[serde(default)]
+     pub allowed_data_read: Vec<String>,
+ }
++
++fn default_cardinality() -> String {
++    "singleton".to_string()
++}
+@@ -176,63 +182,135 @@
+ pub const CLIENT_LOADER_JS: &str = r#"(function() {
++  var frameRegistry = new WeakMap();
++  var mountedIframes = [];
++
++  function currentHostTheme() {
++    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
++  }
++
+   function extractContextProps(anchor) {
+     var ctx = {};
+     for (var i = 0; i < anchor.attributes.length; i++) {
+       var attr = anchor.attributes[i];
+       if (attr.name.indexOf('data-') === 0 && attr.name !== 'data-salamanda-slot' && attr.name !== 'data-salamanda-mounted') {
+         ctx[attr.name.slice(5)] = attr.value;
+       }
+     }
+     return ctx;
+   }
+ 
++  function mountIntoAnchor(anchor, m, instanceKey, ctxProps) {
++    var containerId = 'salamanda-mount-' + m.limb_id + '-' + m.slot_id + '-' + instanceKey;
++    var targetRoot = anchor;
++    if (anchor.tagName === 'AMPHIBIAN-SLOT' && typeof anchor.attachShadow === 'function') {
++      targetRoot = anchor.shadowRoot || anchor.attachShadow({ mode: 'open' });
++    }
++    if (targetRoot.querySelector && targetRoot.querySelector('[data-salamanda-container="' + containerId + '"]')) {
++      return;
++    }
++    var wrapper = document.createElement('div');
++    wrapper.setAttribute('data-salamanda-container', containerId);
++    wrapper.setAttribute('data-salamanda-limb', m.limb_id);
++    wrapper.setAttribute('data-salamanda-context', JSON.stringify(ctxProps));
++    if (m.isolation === 'iframe') {
++      var iframe = document.createElement('iframe');
++      iframe.setAttribute('sandbox', 'allow-scripts allow-forms');
++      iframe.setAttribute('referrerpolicy', 'no-referrer');
++      iframe.setAttribute('srcdoc', m.html_content);
++      iframe.style.width = '100%';
++      iframe.style.border = '0';
++      iframe.style.display = 'block';
++      wrapper.appendChild(iframe);
++      targetRoot.appendChild(wrapper);
++      if (iframe.contentWindow) {
++        var meta = { limbId: m.limb_id, slotId: m.slot_id, instanceKey: instanceKey, context: ctxProps, iframe: iframe };
++        frameRegistry.set(iframe.contentWindow, meta);
++        mountedIframes.push(meta);
++      }
++    } else {
++      wrapper.innerHTML = m.html_content;
++      targetRoot.appendChild(wrapper);
++    }
++    anchor.setAttribute('data-salamanda-mounted', 'true');
++  }
++
+   function mountSalamandaSlots() {
+     var payloadEl = document.getElementById('__SALAMANDA_SLOTS_DATA__');
+     if (!payloadEl) return;
+     try {
+       var mounts = JSON.parse(payloadEl.textContent || '[]');
+       mounts.forEach(function(m) {
+-        var anchor = document.querySelector('[data-salamanda-slot="' + m.slot_id + '"]');
+-        if (!anchor) return;
+-        var containerId = 'salamanda-mount-' + m.limb_id + '-' + m.slot_id;
+-        if (document.getElementById(containerId)) return;
+-        var ctxProps = extractContextProps(anchor);
+-        var wrapper = document.createElement('div');
+-        wrapper.id = containerId;
+-        wrapper.setAttribute('data-salamanda-limb', m.limb_id);
+-        wrapper.setAttribute('data-salamanda-context', JSON.stringify(ctxProps));
+-        if (m.isolation === 'iframe') {
+-          var iframe = document.createElement('iframe');
+-          iframe.setAttribute('sandbox', 'allow-scripts');
+-          iframe.setAttribute('referrerpolicy', 'no-referrer');
+-          iframe.setAttribute('srcdoc', m.html_content);
+-          iframe.style.width = '100%';
+-          iframe.style.border = '0';
+-          wrapper.appendChild(iframe);
+-        } else {
+-          wrapper.innerHTML = m.html_content;
+-        }
+-        anchor.appendChild(wrapper);
++        var anchors = document.querySelectorAll('[data-salamanda-slot="' + m.slot_id + '"]');
++        var isRepeater = m.cardinality === 'repeater';
++        for (var i = 0; i < anchors.length; i++) {
++          var anchor = anchors[i];
++          var ctxProps = extractContextProps(anchor);
++          var instanceKey = isRepeater ? (ctxProps['post-id'] || ctxProps['item-id'] || String(i)) : 'default';
++          mountIntoAnchor(anchor, m, instanceKey, ctxProps);
++          if (!isRepeater) break;
++        }
+       });
+     } catch (e) {
+       console.error('[Salamanda] Failed to mount slots:', e);
+     }
+   }
+ 
+   window.addEventListener('message', function(event) {
+     var msg = event.data;
+-    if (!msg || msg.channel !== 'salamanda.broker.v1' || !msg.requestId || !msg.payload) return;
++    if (!msg || !event.source) return;
++    var meta = frameRegistry.get(event.source);
++    if (!meta) return;
++
++    if (msg.channel === 'salamanda.context.request.v1') {
++      event.source.postMessage({
++        channel: 'salamanda.context.reply.v1',
++        requestId: msg.requestId,
++        limbId: meta.limbId,
++        slotId: meta.slotId,
++        instanceKey: meta.instanceKey,
++        route: location.pathname,
++        context: meta.context,
++        theme: currentHostTheme()
++      }, '*');
++      return;
++    }
++
++    if (msg.channel === 'salamanda.resize.v1' && typeof msg.height === 'number') {
++      var clamped = Math.max(0, Math.min(1200, Math.ceil(msg.height)));
++      meta.iframe.style.height = clamped + 'px';
++      return;
++    }
++
++    if (msg.channel !== 'salamanda.broker.v1' || !msg.requestId || !msg.payload) return;
++    if (msg.payload.limb_id && msg.payload.limb_id !== meta.limbId) {
++      event.source.postMessage({
++        channel: 'salamanda.broker.v1.reply',
++        requestId: msg.requestId,
++        response: { ok: false, error: 'Broker source limb_id mismatch' }
++      }, '*');
++      return;
++    }
+     fetch('/_salamanda/broker', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       credentials: 'same-origin',
+       body: JSON.stringify(msg.payload)
+     })
+       .then(function(r) { return r.json(); })
+       .then(function(resp) {
+         if (event.source) {
+           event.source.postMessage({
+             channel: 'salamanda.broker.v1.reply',
+             requestId: msg.requestId,
+             response: resp
+           }, '*');
+         }
+       })
+       .catch(function(err) {
+         if (event.source) {
+           event.source.postMessage({
+             channel: 'salamanda.broker.v1.reply',
+             requestId: msg.requestId,
+             response: { ok: false, error: String(err) }
+           }, '*');
+         }
+       });
+   });
+ 
++  var rafScheduled = false;
++  var domObserver = new MutationObserver(function() {
++    if (rafScheduled) return;
++    rafScheduled = true;
++    requestAnimationFrame(function() {
++      rafScheduled = false;
++      mountSalamandaSlots();
++    });
++  });
++  if (document.body) {
++    domObserver.observe(document.body, { childList: true, subtree: true });
++  }
++  new MutationObserver(function() {
++    var theme = currentHostTheme();
++    mountedIframes.forEach(function(meta) {
++      try {
++        meta.iframe.contentWindow && meta.iframe.contentWindow.postMessage({
++          channel: 'salamanda.context.reply.v1',
++          limbId: meta.limbId,
++          slotId: meta.slotId,
++          instanceKey: meta.instanceKey,
++          route: location.pathname,
++          context: meta.context,
++          theme: theme
++        }, '*');
++      } catch (_) {}
++    });
++  }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
++
+   var origPush = history.pushState;
+   history.pushState = function() {
+     var ret = origPush.apply(this, arguments);
+     queueMicrotask(mountSalamandaSlots);
+     return ret;
+   };
+   window.addEventListener('popstate', mountSalamandaSlots);
+   if (document.readyState === 'loading') {
+     document.addEventListener('DOMContentLoaded', mountSalamandaSlots);
+   } else {
+     mountSalamandaSlots();
+   }
+ })();"#;

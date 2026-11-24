@@ -1,0 +1,138 @@
+--- a/crates/salamanda-overlay/src/lib.rs
++++ b/crates/salamanda-overlay/src/lib.rs
+@@ -98,7 +98,19 @@
+     CanonicalRead {
+         limb_id: String,
+         collection: String,
+         doc_id: String,
+     },
++    LimbInvoke {
++        limb_id: String,
++        route: String,
++        #[serde(default = "default_invoke_method")]
++        method: String,
++        #[serde(default)]
++        body: serde_json::Value,
++    },
+ }
++
++fn default_invoke_method() -> String {
++    "POST".to_string()
++}
+@@ -165,6 +177,32 @@
+             }
+             Ok(())
+         }
++        BrokerRpcRequest::LimbInvoke {
++            limb_id,
++            route,
++            method,
++            ..
++        } => {
++            let _mount = active_mounts
++                .iter()
++                .find(|m| &m.limb_id == limb_id)
++                .ok_or_else(|| {
++                    OverlayError::BrokerCapabilityDenied(format!(
++                        "limb '{}' is not active in this session",
++                        limb_id
++                    ))
++                })?;
++
++            let required_prefix = format!("/_limb/{}/", limb_id);
++            if !route.starts_with(&required_prefix) || route.contains("..") {
++                return Err(OverlayError::BrokerCapabilityDenied(format!(
++                    "limb '{}' cannot invoke cross-limb or traversal route '{}'",
++                    limb_id, route
++                )));
++            }
++            let upper = method.to_ascii_uppercase();
++            if !matches!(upper.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
++                return Err(OverlayError::BrokerCapabilityDenied(format!(
++                    "unsupported HTTP method '{}' for limb_invoke",
++                    method
++                )));
++            }
++            Ok(())
++        }
+     }
+ }
+--- a/crates/salamanda-proxy/src/lib.rs
++++ b/crates/salamanda-proxy/src/lib.rs
+@@ -166,6 +166,57 @@
+         );
+     }
+ 
++    if let BrokerRpcRequest::LimbInvoke {
++        limb_id,
++        route,
++        method,
++        body,
++    } = rpc_req
++    {
++        let Some(pool) = &state.function_pool else {
++            return (
++                StatusCode::NOT_IMPLEMENTED,
++                Json(BrokerRpcResponse {
++                    ok: false,
++                    data: None,
++                    error: Some("function sandbox pool not configured".to_string()),
++                }),
++            );
++        };
++        let upper_method = method.to_ascii_uppercase();
++        let handler = state
++            .bindings
++            .get(&principal.uid)
++            .and_then(|b| b.functions.get(&(upper_method.clone(), route.clone())).cloned());
++        let Some(handler) = handler else {
++            return (
++                StatusCode::NOT_FOUND,
++                Json(BrokerRpcResponse {
++                    ok: false,
++                    data: None,
++                    error: Some(format!(
++                        "no bound function handler for {} {} on limb '{}'",
++                        upper_method, route, limb_id
++                    )),
++                }),
++            );
++        };
++        let invocation = FunctionInvocation {
++            limb_id: handler.limb_id.clone(),
++            limb_version: handler.limb_version.clone(),
++            route,
++            method: upper_method,
++            principal,
++            body_json: body,
++        };
++        return match pool
++            .execute_handler(&handler.ts_source, &handler.permissions, &invocation)
++            .await
++        {
++            Ok(res) => (
++                StatusCode::OK,
++                Json(BrokerRpcResponse {
++                    ok: res.status < 400,
++                    data: Some(res.body),
++                    error: if res.status >= 400 {
++                        Some(format!("function returned HTTP {}", res.status))
++                    } else {
++                        None
++                    },
++                }),
++            ),
++            Err(e) => (
++                StatusCode::BAD_REQUEST,
++                Json(BrokerRpcResponse {
++                    ok: false,
++                    data: None,
++                    error: Some(e.to_string()),
++                }),
++            ),
++        };
++    }
++
+     (
+         StatusCode::OK,
+         Json(BrokerRpcResponse {

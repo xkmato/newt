@@ -394,10 +394,10 @@ flowchart LR
   *Accept:* `pnpm newt build` produces a Limb directory passing `salamanda validate`.
 
 ### Milestone 4: Live Salamanda Control Plane Integration & Upstream RFCs
-- [ ] **Task 4.1 — Salamanda `ClientDelegationAuth` Deployment Pipeline:**
+- [x] **Task 4.1 — Salamanda `ClientDelegationAuth` Deployment Pipeline:**
   Implement `/api/v1/projects/:id/deploy`, `/publish`, and `/api/v1/bindings/me` using server-held `X-Salamanda-Client-Id/Key` + delegated user token and Human Egress Consent gating (`NEWT-CONSENT-001`).
   *Accept:* E2E test against the real Rust `salamanda` daemon (`:8080` + `:7474`) compiles, uploads, and binds a Limb for `uid:kenneth` while `uid:alice` stays on the vanilla fast path.
-- [ ] **Task 4.2 — Upstream Salamanda `v1.1` RFCs (`RFC-0001`, `RFC-0002`, `RFC-0003`):**
+- [x] **Task 4.2 — Upstream Salamanda `v1.1` RFCs (`RFC-0001`, `RFC-0002`, `RFC-0003`):**
   Author ready-to-merge RFCs and reference patches for Shadow-DOM repeater slots, `LimbInvoke` broker proxying, and Firebase Session Cookie / SPA Bearer hydration.
   *Accept:* RFCs and consumer-driven contract tests committed and verified.
 

@@ -16,6 +16,8 @@ export interface DelegationAuthContext {
   devUid?: string;
   /** Optional idempotency key for draft uploads */
   idempotencyKey?: string;
+  /** Optional additional verified identity headers (e.g. signed headers `x-auth-uid`/`x-auth-sig`) */
+  extraHeaders?: Record<string, string>;
 }
 
 export class SalamandaControlPlaneClient {
@@ -39,6 +41,9 @@ export class SalamandaControlPlaneClient {
     }
     if (ctx.idempotencyKey) {
       headers["Idempotency-Key"] = ctx.idempotencyKey;
+    }
+    if (ctx.extraHeaders) {
+      Object.assign(headers, ctx.extraHeaders);
     }
     return headers;
   }
@@ -147,5 +152,47 @@ export class SalamandaControlPlaneClient {
       throw new Error(`resetBindings failed (${res.status}): ${await res.text()}`);
     }
     return (await res.json()) as { principal_uid: string; limbs: string[] };
+  }
+
+  async previewBindings(
+    auth: DelegationAuthContext,
+    principalUid: string,
+    limbIds: string[]
+  ): Promise<{ principal_uid: string; limbs: string[] }> {
+    const res = await fetch(
+      `${this.baseUrl}/v1/principals/${encodeURIComponent(principalUid)}/preview`,
+      {
+        method: "POST",
+        headers: this.delegatedHeaders(auth),
+        body: JSON.stringify({ limbs: limbIds }),
+      }
+    );
+    if (!res.ok) {
+      throw new Error(`previewBindings failed (${res.status}): ${await res.text()}`);
+    }
+    return (await res.json()) as { principal_uid: string; limbs: string[] };
+  }
+
+  async quarantineLimb(
+    auth: DelegationAuthContext,
+    limbId: string,
+    reason: string
+  ): Promise<{ limb_id: string; status: string; unbound_principals: string[] }> {
+    const res = await fetch(
+      `${this.baseUrl}/v1/limbs/${encodeURIComponent(limbId)}/quarantine`,
+      {
+        method: "POST",
+        headers: this.delegatedHeaders(auth),
+        body: JSON.stringify({ reason }),
+      }
+    );
+    if (!res.ok) {
+      throw new Error(`quarantineLimb failed (${res.status}): ${await res.text()}`);
+    }
+    return (await res.json()) as {
+      limb_id: string;
+      status: string;
+      unbound_principals: string[];
+    };
   }
 }

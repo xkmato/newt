@@ -64,6 +64,13 @@ export function StudioWorkspace() {
   const [promptInput, setPromptInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [savingFile, setSavingFile] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deployBanner, setDeployBanner] = useState<{
+    kind: "ok" | "error" | "consent";
+    message: string;
+    unapprovedHosts?: string[];
+  } | null>(null);
+  const [approvedEgressHosts, setApprovedEgressHosts] = useState<string[]>([]);
   const [traces, setTraces] = useState<TraceItem[]>([]);
   const [statusError, setStatusError] = useState<string | null>(null);
 
@@ -387,6 +394,58 @@ export function StudioWorkspace() {
     }
   };
 
+  const handleDeployToSalamanda = async (explicitHosts?: string[]) => {
+    if (!activeProjectId || deploying) return;
+    setDeploying(true);
+    setDeployBanner(null);
+    const hosts = Array.from(new Set([...approvedEgressHosts, ...(explicitHosts ?? [])]));
+    try {
+      const res = await fetch(`/api/v1/projects/${encodeURIComponent(activeProjectId)}/deploy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approvedEgressHosts: hosts, bindToSelf: true }),
+      });
+      const body = (await res.json()) as {
+        deployed?: boolean;
+        limbId?: string;
+        bindings?: string[];
+        code?: string;
+        unapprovedEgressHosts?: string[];
+        error?: string;
+      };
+      if (res.status === 409 && body.code === "NEWT-CONSENT-001") {
+        setDeployBanner({
+          kind: "consent",
+          message: body.error ?? "Human egress consent required before binding external hosts.",
+          unapprovedHosts: body.unapprovedEgressHosts ?? [],
+        });
+        setTab("contract");
+        return;
+      }
+      if (!res.ok) {
+        setDeployBanner({ kind: "error", message: body.error ?? "Deploy to Salamanda failed" });
+        return;
+      }
+      setDeployBanner({
+        kind: "ok",
+        message: `Deployed & bound '${body.limbId}' on Salamanda (active: ${(body.bindings ?? []).join(", ")})`,
+      });
+    } catch (err) {
+      setDeployBanner({
+        kind: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const handleApproveEgress = (hosts: string[]) => {
+    const merged = Array.from(new Set([...approvedEgressHosts, ...hosts]));
+    setApprovedEgressHosts(merged);
+    void handleDeployToSalamanda(merged);
+  };
+
   const quickPrompts = STARTER_PROMPTS[activeBase?.id ?? "xkmato"] ?? STARTER_PROMPTS.standalone ?? [];
 
   return (
@@ -435,6 +494,21 @@ export function StudioWorkspace() {
                 : `${activeBundle.diagnostics.filter((d) => d.severity === "error").length} Errors`
               : "Uncompiled"}
           </span>
+
+          <button
+            type="button"
+            className="studio-btn primary"
+            data-testid="deploy-salamanda-btn"
+            disabled={deploying || !activeBundle?.valid || activeBase?.id === "standalone"}
+            title={
+              activeBase?.id === "standalone"
+                ? "Switch to a host base target (e.g. xkmato) to deploy to Salamanda"
+                : "Upload & bind Limb on the configured Salamanda Control Plane"
+            }
+            onClick={() => void handleDeployToSalamanda()}
+          >
+            {deploying ? "Deploying..." : "Deploy to Salamanda"}
+          </button>
 
           <ThemeToggle onThemeChange={handleThemeChange} />
         </div>
@@ -798,7 +872,31 @@ export function StudioWorkspace() {
 
             {tab === "sidecar" ? <SidecarExplorer broker={broker} /> : null}
 
-            {tab === "contract" ? <ContractInspector compiled={activeBundle} /> : null}
+            {tab === "contract" ? (
+              <>
+                {deployBanner ? (
+                  <div
+                    role="status"
+                    style={{
+                      margin: "16px 16px 0",
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--studio-border)",
+                      fontSize: "12.5px",
+                      color:
+                        deployBanner.kind === "error"
+                          ? "#ef4444"
+                          : deployBanner.kind === "ok"
+                            ? "#16a34a"
+                            : "#d97706",
+                    }}
+                  >
+                    {deployBanner.message}
+                  </div>
+                ) : null}
+                <ContractInspector compiled={activeBundle} onApproveEgress={handleApproveEgress} />
+              </>
+            ) : null}
           </div>
         </section>
       </main>

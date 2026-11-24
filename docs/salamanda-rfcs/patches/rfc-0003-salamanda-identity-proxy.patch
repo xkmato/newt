@@ -1,0 +1,136 @@
+--- a/crates/salamanda-identity/src/lib.rs
++++ b/crates/salamanda-identity/src/lib.rs
+@@ -39,10 +39,16 @@
+ /// 1. JWT/JWKS & OIDC Identity Adapter (covers Firebase ID tokens, session cookies, and standard OIDC).
++pub const FIREBASE_ID_TOKEN_JWKS_URL: &str =
++    "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
++pub const FIREBASE_SESSION_COOKIE_CERTS_URL: &str =
++    "https://www.googleapis.com/identitytoolkit/v3/relyingparty/publicKeys";
++
+ pub struct JwtJwksIdentityAdapter {
+     pub issuer: String,
++    pub additional_issuers: Vec<String>,
+     pub audience: String,
+     pub cookie_name: String,
+     keys: HashMap<String, (Algorithm, DecodingKey)>,
+ }
+ 
+ impl JwtJwksIdentityAdapter {
+     pub fn new(
+         issuer: impl Into<String>,
+         audience: impl Into<String>,
+         cookie_name: impl Into<String>,
+     ) -> Self {
+         Self {
+             issuer: issuer.into(),
++            additional_issuers: Vec::new(),
+             audience: audience.into(),
+             cookie_name: cookie_name.into(),
+             keys: HashMap::new(),
+         }
+     }
+ 
++    pub fn with_additional_issuer(mut self, issuer: impl Into<String>) -> Self {
++        self.additional_issuers.push(issuer.into());
++        self
++    }
++
++    /// Dual-mode Firebase adapter accepting both SSR `__session` cookies
++    /// (`https://session.firebase.google.com/<project_id>`) and client Bearer ID tokens
++    /// (`https://securetoken.google.com/<project_id>`).
++    pub fn firebase_dual_mode(
++        project_id: impl AsRef<str>,
++        cookie_name: impl Into<String>,
++    ) -> Self {
++        let pid = project_id.as_ref();
++        Self::new(
++            format!("https://session.firebase.google.com/{}", pid),
++            pid,
++            cookie_name,
++        )
++        .with_additional_issuer(format!("https://securetoken.google.com/{}", pid))
++    }
++
+     pub fn verify_token_str(&self, token: &str) -> Result<Principal, IdentityError> {
+@@ -80,7 +106,11 @@
+         let mut validation = Validation::new(*alg);
+-        validation.set_issuer(&[&self.issuer]);
++        let mut issuers: Vec<&str> = Vec::with_capacity(1 + self.additional_issuers.len());
++        issuers.push(self.issuer.as_str());
++        for extra in &self.additional_issuers {
++            issuers.push(extra.as_str());
++        }
++        validation.set_issuer(&issuers);
+         validation.set_audience(&[&self.audience]);
+--- a/crates/salamanda-proxy/src/lib.rs
++++ b/crates/salamanda-proxy/src/lib.rs
+@@ -91,6 +91,7 @@
+ pub fn build_proxy_router(state: Arc<ProxyState>) -> Router {
+     Router::new()
+         .route("/_salamanda/loader.js", get(serve_loader_js))
+         .route("/_salamanda/reset", get(handle_emergency_reset))
+         .route("/_salamanda/broker", post(handle_broker_rpc))
++        .route("/_salamanda/slots-for-principal", post(handle_slots_for_principal))
+         .route(
+             "/_limb/:limb_id/*action",
+             any(handle_limb_function_dispatch),
+         )
+@@ -179,6 +180,53 @@
+     )
+ }
+ 
++#[derive(Debug, serde::Deserialize)]
++struct SlotsForPrincipalRequest {
++    #[serde(default = "default_route_path")]
++    route: String,
++}
++
++fn default_route_path() -> String {
++    "/".to_string()
++}
++
++/// RFC-0003: Returns route-filtered `ResolvedSlotPayload[]` for a Bearer/cookie-authenticated
++/// principal so cookie-less SPAs can hydrate `<amphibian-slot>` anchors client-side.
++async fn handle_slots_for_principal(
++    State(state): State<Arc<ProxyState>>,
++    headers: HeaderMap,
++    Json(req): Json<SlotsForPrincipalRequest>,
++) -> impl IntoResponse {
++    let Some(principal) = state.identity.verify_headers(&headers).ok().flatten() else {
++        return (
++            StatusCode::UNAUTHORIZED,
++            [(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"))],
++            Json(serde_json::json!({ "error": "unauthenticated principal" })),
++        );
++    };
++
++    if state.is_kill_switch_active() {
++        return (
++            StatusCode::OK,
++            [(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"))],
++            Json(serde_json::json!({
++                "principal_uid": principal.uid,
++                "route": req.route,
++                "kill_switch": true,
++                "slots": []
++            })),
++        );
++    }
++
++    let mounts = state
++        .bindings
++        .get(&principal.uid)
++        .map(|b| filter_mounts_for_path(&req.route, &b.slot_mounts, None))
++        .unwrap_or_default();
++
++    (
++        StatusCode::OK,
++        [(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"))],
++        Json(serde_json::json!({
++            "principal_uid": principal.uid,
++            "route": req.route,
++            "kill_switch": false,
++            "slots": mounts
++        })),
++    )
++}
