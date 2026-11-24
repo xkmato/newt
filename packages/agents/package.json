@@ -1,0 +1,27 @@
+{
+  "name": "@newt/agents",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "@newt/base-sdk": "workspace:*",
+    "@newt/compiler": "workspace:*",
+    "@newt/contract": "workspace:*",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@newt/base-xkmato": "workspace:*"
+  }
+}

@@ -369,16 +369,16 @@ flowchart LR
   *Accept:* Automated test compiles a repeater `micropost.footer` Limb and a singleton `blog.sidebar` Limb, mounts both against `MockSalamandaHostBroker`, and verifies independent SQLite state per `post-id`.
 
 ### Milestone 2: Persistence (`@newt/db`) & Platform-Agnostic Multi-Agent Engine (`@newt/agents`)
-- [ ] **Task 2.1 — `@newt/db` SQLite WAL Store & Checkpoint VFS:**
-  Implement Drizzle + `better-sqlite3` schema (`projects`, `vfs_snapshots`, `threads`, `messages`, `deployments`, `gallery_listings`, `entitlement_grants`) with immutable checkpoints and 1-click rollback.
-  *Accept:* WAL concurrency, diff generation, and rollback tests pass.
-- [ ] **Task 2.2 — `LlmProvider` Abstraction & Prompt-Injection `Gatekeeper`:**
-  Implement Gemini (`@google/genai`), Anthropic, OpenAI, and Ollama adapters + data-fenced `Gatekeeper` + toxic permission pre-check.
+- [x] **Task 2.1 — `@newt/db` SQLite WAL Store & Checkpoint VFS:**
+  Implement zero-ops SQLite WAL (`node:sqlite`) schema (`projects`, `vfs_snapshots`, `threads`, `messages`, `deployments`, `gallery_listings`, `entitlement_grants`) with immutable checkpoints, snapshot diffs, and 1-click rollback.
+  *Accept:* WAL durability across reopen, diff generation, entitlement checks, and rollback tests pass.
+- [x] **Task 2.2 — `LlmProvider` Abstraction & Prompt-Injection `Gatekeeper`:**
+  Implement Gemini (`@google/genai`, default), Anthropic, OpenAI, and Ollama adapters + data-fenced `Gatekeeper` + toxic permission pre-check.
   *Accept:* Adversarial prompt-injection fixtures attempting private `data_read` + `egress` are blocked or gated.
-- [ ] **Task 2.3 — `ArchitectAgent`, `DataAndFunctionsAgent`, & `UiCraftsmanAgent`:**
+- [x] **Task 2.3 — `ArchitectAgent`, `DataAndFunctionsAgent`, & `UiCraftsmanAgent`:**
   Implement manifest-driven `LimbBlueprint` planning and parallel code synthesis conditioned purely on the active `AmphibianPlatformManifest` + Salamanda `llms.txt`.
-  *Accept:* Generates valid Limbs across **two different Base Packs** (`@newt/base-xkmato` AND `examples/generic-blog-demo`) without changing a single line in `@newt/agents`.
-- [ ] **Task 2.4 — Bounded `RepairAgent` Self-Correction Loop:**
+  *Accept:* Generates valid Limbs across **two different Base Packs** (`@newt/base-xkmato` AND `indie-forum`) without changing a single line in `@newt/agents`.
+- [x] **Task 2.4 — Bounded `RepairAgent` Self-Correction Loop:**
   Feed 6-stage `Diagnostic[]` (`SAL-*` + `NEWT-*`) into `RepairAgent` (max 3 surgical retries).
   *Accept:* Seeded manifest, SQL, L2 guard, and TSX errors self-repair to `valid == true` in `<= 2` iterations.
 
