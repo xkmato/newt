@@ -779,7 +779,10 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
 
     if (req.role === "data-functions") {
       const bp = parseBlueprintFromPrompt(req.userPrompt, req.systemPrompt);
-      const isRepeater = bp.slot === "micropost.footer";
+      const manifest = this.manifestResolver?.(bp.baseId) ?? null;
+      const slotMeta = manifest?.slots.find((s) => s.id === bp.slot);
+      const isRepeater = slotMeta?.cardinality === "repeater" || bp.slot === "micropost.footer";
+      const firstReadable = manifest?.permissions_catalog?.readable_collections?.[0];
       const manifestToml = serializeLimbManifestToml({
         limb: {
           id: bp.limbId,
@@ -803,7 +806,7 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
           },
         ],
         permissions: {
-          data_read: bp.baseId === "xkmato" ? ["blogposts"] : [],
+          data_read: firstReadable ? [firstReadable] : [],
           data_write: [],
           egress: [],
           sidecar: bp.sidecarScope,
@@ -849,10 +852,13 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
 
     if (req.role === "ui-craftsman") {
       const bp = parseBlueprintFromPrompt(req.userPrompt, req.systemPrompt);
+      const manifest = this.manifestResolver?.(bp.baseId) ?? null;
+      const slotMeta = manifest?.slots.find((s) => s.id === bp.slot);
+      const isRepeater = slotMeta?.cardinality === "repeater" || bp.slot === "micropost.footer";
       let code: string;
       if (bp.mode === "standalone-ui" || bp.baseId === "standalone") {
         code = buildStandaloneWidgetTsx(bp.displayName, this.lastUserIntent || bp.description);
-      } else if (bp.slot === "micropost.footer") {
+      } else if (isRepeater) {
         code = buildRepeaterReactionTsx(bp.displayName);
       } else if (bp.slot === "blog.header") {
         code = buildBlogHeaderTtsTsx(bp.displayName);

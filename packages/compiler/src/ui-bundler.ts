@@ -84,14 +84,12 @@ function wrapInSelfContainedSrcdoc(params: {
     cardinality: params.cardinality,
   });
   const bootScript = `window.__NEWT_BOOT__=${bootPayload};`;
-  const appScript = escapeInlineScript(params.bundledJs);
-
-  const bootHash = sha256Base64(bootScript);
-  const appHash = sha256Base64(appScript);
+  const combinedScript = `${bootScript}\n${escapeInlineScript(params.bundledJs)}`;
+  const scriptHash = sha256Base64(combinedScript);
 
   const csp = [
     "default-src 'none'",
-    `script-src 'sha256-${bootHash}' 'sha256-${appHash}'`,
+    `script-src 'sha256-${scriptHash}'`,
     "style-src 'unsafe-inline'",
     "img-src data: blob: https:",
     "media-src data: blob: https:",
@@ -119,11 +117,10 @@ html, body {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
     `<style id="newt-styles">${params.themeCss}\n${baseResetCss}\n${params.bundledCss}</style>`,
-    `<script>${bootScript}</script>`,
     "</head>",
     "<body>",
     '<div id="root"></div>',
-    `<script>${appScript}</script>`,
+    `<script>${combinedScript}</script>`,
     "</body>",
     "</html>",
   ].join("\n");

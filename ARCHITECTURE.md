@@ -402,13 +402,13 @@ flowchart LR
   *Accept:* RFCs and consumer-driven contract tests committed and verified.
 
 ### Milestone 5: Auth-Agnostic `@newt/bridge`, XKMato Integration & Cross-Platform Portability Proof
-- [ ] **Task 5.1 — `@newt/bridge` (`< 4 KB` Fail-Open Shadow-DOM Bridge & `MutationObserver`):**
+- [x] **Task 5.1 — `@newt/bridge` (`< 4 KB` Fail-Open Shadow-DOM Bridge & `MutationObserver`):**
   Implement `<amphibian-slot>` Shadow-DOM mounter, `MutationObserver` repeater hydration, visual Slot Picker overlay, `window.NewtHost.getAuthToken()` pluggable auth handoff over `MessageChannel` (`newt.host.v1`), and `2.5s` fail-open timeout.
   *Accept:* Resilience E2E tests confirm killing Newt (`503` / `ECONNREFUSED` / timeout) produces **zero** console errors, **zero** React 19 hydration warnings, and **zero** CLS on Next.js 16 + `reactCompiler: true`.
-- [ ] **Task 5.2 — Embedded Drawer (`apps/studio/app/embed`), Gallery & Entitlement Gate:**
+- [x] **Task 5.2 — Embedded Drawer (`apps/studio/app/embed`), Gallery & Entitlement Gate:**
   Implement `/embed` drawer, `/gallery`, Permission Consent Cards, and pluggable `EntitlementVerifier` webhook (supporting XKMato ledger/subscriptions or any third-party platform's billing webhook).
   *Accept:* End-to-end flow: prompt in `/embed` -> ephemeral inline preview -> activate on Salamanda -> stop Newt server -> verify Limb continues running via Salamanda alone.
-- [ ] **Task 5.3 — Second-Platform Portability Proof (`examples/generic-blog-demo`) & Optional XKMato PR:**
+- [x] **Task 5.3 — Second-Platform Portability Proof (`examples/generic-blog-demo`) & Optional XKMato PR:**
   Mount the **exact same `@newt/bridge` + Newt Studio** onto both a non-Next.js `examples/generic-blog-demo` app and `/Users/kenneth/Code/xkmato` (applying the P0–P2 XKMato recommendations immediately alongside M0).
   *Accept:* E2E suite proves Newt authors and mounts working Limbs on two completely different web stacks/auth providers without modifying a single line of Newt core.
 

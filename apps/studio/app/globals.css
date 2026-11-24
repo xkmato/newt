@@ -412,3 +412,27 @@ amphibian-slot {
     color: var(--studio-muted);
   }
 }
+
+/* Accessible Native Modal Dialogs (Permission Consent Cards) */
+dialog.consent-dialog {
+  max-width: 480px;
+  width: calc(100vw - 32px);
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+  padding: 20px;
+  background: var(--studio-panel);
+  color: var(--studio-fg);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+}
+
+dialog.consent-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.consent-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+

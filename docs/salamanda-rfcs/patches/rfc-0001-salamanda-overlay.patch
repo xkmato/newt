@@ -224,3 +224,9 @@
      mountSalamandaSlots();
    }
  })();"#;
+@@ -280,2 +358,3 @@
+-    let serialized_payload =
+-        serde_json::to_string(mounts).map_err(|e| OverlayError::Rewrite(e.to_string()))?;
++    let serialized_payload = serde_json::to_string(mounts)
++        .map_err(|e| OverlayError::Rewrite(e.to_string()))?
++        .replace("</", "<\\/");

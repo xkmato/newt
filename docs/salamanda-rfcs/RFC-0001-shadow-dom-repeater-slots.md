@@ -40,6 +40,7 @@ pub cardinality: String, // "singleton" (default) | "repeater"
   ```
   Observe `document.documentElement` (`class` attribute) to push updated `theme` replies whenever the host switches `.dark` mode.
 - **Bounded Auto-Resize:** On `salamanda.resize.v1` from a registered `event.source`, clamp `height` to `[0, 1200]` px and update `iframe.style.height`.
+- **Safe JSON Script Serialization:** Escape `</` as `<\/` when serializing `__SALAMANDA_SLOTS_DATA__` inside `rewrite_html_with_slots` so compiled `srcdoc` HTML containing `<script>...</script>` can never prematurely close `<script id="__SALAMANDA_SLOTS_DATA__" type="application/json">`.
 - **Broker Source Pinning:** On `salamanda.broker.v1`, reject requests where `msg.payload.limb_id !== meta.limbId` before forwarding to `POST /_salamanda/broker`.
 
 ## 3. Backward Compatibility

@@ -474,6 +474,14 @@ export function StudioWorkspace() {
             ))}
           </select>
 
+          <a
+            href="/gallery"
+            className="studio-btn"
+            style={{ textDecoration: "none" }}
+          >
+            Gallery
+          </a>
+
           <button
             type="button"
             className="studio-btn"
