@@ -169,6 +169,10 @@ export interface OrchestratorRequest {
   baseSourceFiles?: Record<string, string>;
   /** Optional rebase conflict context when self-repairing a `Stale` Level 3 Variant */
   rebaseConflict?: RebaseConflictContext;
+  /** Optional host page content/context — always fenced as untrusted data in prompts */
+  untrustedHostContext?: string;
+  /** True when Salamanda advertises `features.l2_js_runtime` in `GET /v1/capabilities` */
+  l2JsRuntime?: boolean;
   maxRepairAttempts?: number;
   runSmokeTest?: boolean;
   onEvent?: (event: AgentTurnEvent) => void;

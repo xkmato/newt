@@ -22,6 +22,12 @@ export interface CompileOptions {
   runSmokeTest?: boolean;
   /** Maximum uncompressed HTML bundle size per UI slot (defaults to 150 KB = 153600 bytes) */
   maxBundleBytes?: number;
+  /**
+   * Set to `true` when Salamanda `GET /v1/capabilities` advertises `features.l2_js_runtime`
+   * (embedded JS runtime such as QuickJS). When `false`/unset (default v1.0), L2 handlers
+   * must include executable `// @host:` DSL directives.
+   */
+  l2JsRuntime?: boolean;
 }
 
 export type HostApiCall =

@@ -46,14 +46,21 @@ export function parseHostOperations(tsSource: string): HostApiCall[] {
   return ops;
 }
 
+function hasExportedJsHandler(source: string): boolean {
+  return /\bexport\s+(default\s+)?(async\s+)?(function|const|let)\b/.test(source);
+}
+
 /**
- * Stage 3: Verifies Level 2 function handlers against Salamanda v1.0's
+ * Stage 3: Verifies Level 2 function handlers against Salamanda's
  * `salamanda-functions` static guard (`transpile_and_guard_ts`), parses `@host:`
  * operations, and cross-checks scopes against `limb.toml` `[permissions]`.
+ * When `options.l2JsRuntime` is true (runtime advertises `l2_js_runtime`), standard
+ * exported JS/TS handlers without `// @host:` directives are also permitted.
  */
 export function compileAndVerifyFunctions(
   vfs: NewtVfs,
-  manifest: LimbManifest
+  manifest: LimbManifest,
+  options: { l2JsRuntime?: boolean } = {}
 ): {
   diagnostics: Diagnostic[];
   functionAssets: Record<string, string>;
@@ -112,14 +119,22 @@ export function compileAndVerifyFunctions(
     }
 
     if (ops.length === 0) {
-      diagnostics.push({
-        code: "NEWT-FN-002",
-        severity: "error",
-        path: foundPath,
-        message: `Handler '${foundPath}' contains no executable // @host: directives.`,
-        hint: "Salamanda v1.0 L2 handlers require at least one // @host: directive.",
-      });
-      continue;
+      if (options.l2JsRuntime && hasExportedJsHandler(source)) {
+        // Runtime advertises embedded JS runtime (`l2_js_runtime`): allow standard exported JS handler
+      } else {
+        diagnostics.push({
+          code: "NEWT-FN-002",
+          severity: "error",
+          path: foundPath,
+          message: options.l2JsRuntime
+            ? `Handler '${foundPath}' must export a handler function or include // @host: directives.`
+            : `Handler '${foundPath}' contains no executable // @host: directives.`,
+          hint: options.l2JsRuntime
+            ? "Export a handler (`export default async function handler(req, host) { ... }`) or add // @host: directives."
+            : "Salamanda v1.0 L2 handlers require at least one // @host: directive.",
+        });
+        continue;
+      }
     }
 
     // 3. Cross-check every HostApiCall against `manifest.permissions`

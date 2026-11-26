@@ -196,11 +196,21 @@ export function formatPlatformContextForAgent(
     }
   );
 
+  const sensitive = manifest.permissions_catalog?.sensitive_collections ?? [];
+  const tokenMappings = Object.entries(manifest.theme.tokens)
+    .map(([newtVar, hostVar]) => `${newtVar} -> ${hostVar}`)
+    .join(", ");
+
   return [
     `# Target Base Platform: ${manifest.base.name} (\`base = "${manifest.base.id}"\`)`,
     `- Framework: ${manifest.base.framework}`,
     `- Enabled Extension Levels: [${caps.allow_levels.join(", ")}]`,
     `- Readable Canonical Collections: [${caps.permissions_catalog.data_read_scopes.join(", ")}]`,
+    ...(sensitive.length > 0
+      ? [`- Forbidden Sensitive Collections (NEVER read): [${sensitive.join(", ")}]`]
+      : []),
+    `- Theme Dark Mode Selector: ${manifest.theme.dark_mode_selector ?? "html.dark"}`,
+    `- Theme Token Map: ${tokenMappings || Object.keys(DEFAULT_LIGHT_TOKENS).join(", ")}`,
     `- Semantic CSS Variables Available: ${Object.keys(DEFAULT_LIGHT_TOKENS).join(", ")}`,
     "",
     "## Available Named Slots",

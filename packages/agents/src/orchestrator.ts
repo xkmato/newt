@@ -4,7 +4,11 @@ import {
   extractTouchedPathsFromUnifiedDiff,
   type NewtVfs,
 } from "@newt/compiler";
-import { serializeLimbManifestToml } from "@newt/contract";
+import {
+  namespaceLimbId,
+  parseLimbManifestToml,
+  serializeLimbManifestToml,
+} from "@newt/contract";
 import { evaluateBlueprintPolicy, evaluatePromptSafety } from "./gatekeeper.js";
 import {
   buildArchitectPrompts,
@@ -87,6 +91,42 @@ function synthesizeFallbackLimbToml(
   });
 }
 
+function enforceOwnerNamespaceInLimbToml(
+  manifestToml: string,
+  expectedLimbId: string,
+  authorUid: string
+): string {
+  try {
+    const parsed = parseLimbManifestToml(manifestToml);
+    const oldId = parsed.limb.id;
+    const oldPrefix = `/_limb/${oldId}/`;
+    const newPrefix = `/_limb/${expectedLimbId}/`;
+    if (oldId === expectedLimbId && parsed.limb.author === authorUid) {
+      return manifestToml;
+    }
+    return serializeLimbManifestToml({
+      ...parsed,
+      limb: {
+        ...parsed.limb,
+        id: expectedLimbId,
+        author: authorUid,
+      },
+      ...(parsed.functions && parsed.functions.length > 0
+        ? {
+            functions: parsed.functions.map((f) => ({
+              ...f,
+              route: f.route.startsWith(oldPrefix)
+                ? `${newPrefix}${f.route.slice(oldPrefix.length)}`
+                : f.route,
+            })),
+          }
+        : {}),
+    });
+  } catch {
+    return manifestToml;
+  }
+}
+
 /**
  * Deterministic Multi-Agent State Machine:
  * `Gatekeeper -> ArchitectAgent -> Parallel(DataAndFunctionsAgent, UiCraftsmanAgent) -> 6-Stage Compiler -> Bounded RepairAgent (max 3)`.
@@ -137,6 +177,8 @@ export async function runNewtOrchestrator(
       selectedSlot: req.selectedSlot,
       existingFiles: Object.keys(vfs),
       enableL3: req.enableL3,
+      l2JsRuntime: req.l2JsRuntime,
+      untrustedHostContext: req.untrustedHostContext,
     });
     const archRes = await req.provider.generateJson({
       role: "architect",
@@ -144,7 +186,21 @@ export async function runNewtOrchestrator(
     });
     recordUsage(archRes.usage);
 
-    const blueprint = LimbBlueprintSchema.parse(archRes.data);
+    const parsedBlueprint = LimbBlueprintSchema.parse(archRes.data);
+    // Enforce deterministic owner-namespaced Limb ID (`u-<8hex>-<slug>`) so two users can never collide
+    const namespacedLimbId = namespaceLimbId(req.authorUid, parsedBlueprint.limbId);
+    const oldRoutePrefix = `/_limb/${parsedBlueprint.limbId}/`;
+    const newRoutePrefix = `/_limb/${namespacedLimbId}/`;
+    const blueprint: LimbBlueprint = {
+      ...parsedBlueprint,
+      limbId: namespacedLimbId,
+      functions: parsedBlueprint.functions.map((fn) => ({
+        ...fn,
+        route: fn.route.startsWith(oldRoutePrefix)
+          ? `${newRoutePrefix}${fn.route.slice(oldRoutePrefix.length)}`
+          : fn.route,
+      })),
+    };
     const bpPolicy = evaluateBlueprintPolicy(blueprint, req.platformManifest, {
       enableL3: req.enableL3,
     });
@@ -210,6 +266,7 @@ export async function runNewtOrchestrator(
               blueprint,
               authorUid: req.authorUid,
               platformManifest: req.platformManifest,
+              l2JsRuntime: req.l2JsRuntime,
             }),
           })
           .then((res) => {
@@ -282,6 +339,12 @@ export async function runNewtOrchestrator(
         synthesizedPatchMeta
       );
       writtenPaths.push("limb.toml");
+    } else if (vfs["limb.toml"]) {
+      vfs["limb.toml"] = enforceOwnerNamespaceInLimbToml(
+        vfs["limb.toml"],
+        blueprint.limbId,
+        req.authorUid
+      );
     }
     if (uiBatch) {
       for (const f of uiBatch.files) {
@@ -303,6 +366,7 @@ export async function runNewtOrchestrator(
         baseSpec: req.baseSpec,
         isSharedPublication: req.isSharedPublication ?? false,
         approvedEgressHosts: req.approvedEgressHosts,
+        l2JsRuntime: req.l2JsRuntime,
         runSmokeTest: req.runSmokeTest ?? true,
       });
 
@@ -334,6 +398,7 @@ export async function runNewtOrchestrator(
           vfs,
           diagnostics: errorDiagnostics,
           platformManifest: req.platformManifest,
+          l2JsRuntime: req.l2JsRuntime,
         }),
       });
       recordUsage(repairRes.usage);
@@ -341,7 +406,10 @@ export async function runNewtOrchestrator(
       const patchBatch = RepairPatchBatchSchema.parse(repairRes.data);
       const editedPaths: string[] = [];
       for (const edit of patchBatch.edits) {
-        vfs[edit.path] = edit.content;
+        vfs[edit.path] =
+          edit.path === "limb.toml"
+            ? enforceOwnerNamespaceInLimbToml(edit.content, blueprint.limbId, req.authorUid)
+            : edit.content;
         editedPaths.push(edit.path);
       }
       emit({

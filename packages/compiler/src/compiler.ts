@@ -64,8 +64,10 @@ export async function compileLimbVfs(
   diagnostics.push(...sqlRes.diagnostics);
   Object.assign(assets, sqlRes.migrationAssets);
 
-  // Stage 3: Level 2 function static guard & @host verification
-  const fnRes = compileAndVerifyFunctions(vfs, manifest);
+  // Stage 3: Level 2 function static guard & @host verification (or embedded JS runtime when advertised)
+  const fnRes = compileAndVerifyFunctions(vfs, manifest, {
+    l2JsRuntime: options.l2JsRuntime,
+  });
   diagnostics.push(...fnRes.diagnostics);
   Object.assign(assets, fnRes.functionAssets);
 
