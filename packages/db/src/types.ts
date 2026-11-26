@@ -2,8 +2,14 @@ import type { CompiledLimbBundle, NewtVfs } from "@newt/compiler";
 
 export type ProjectMode = "standalone-ui" | "salamanda-limb";
 export type MessageRole = "user" | "assistant" | "tool" | "system";
-export type DeploymentEnvironment = "local-dev" | "xkmato-preview" | "xkmato-published" | "custom";
-export type DeploymentStatus = "active" | "detached" | "quarantined";
+export type DeploymentEnvironment =
+  | "local-dev"
+  | "blog-preview"
+  | "blog-live"
+  | "xkmato-preview"
+  | "xkmato-published"
+  | "custom";
+export type DeploymentStatus = "active" | "detached" | "quarantined" | "failed";
 export type GalleryVisibility = "unlisted" | "public";
 export type MonetizationMode = "free" | "allowlist" | "ledger_gate";
 export type EntitlementSource = "author_invite" | "payment_receipt" | "free_install";
@@ -60,6 +66,8 @@ export interface DeploymentRecord {
   environment: DeploymentEnvironment;
   publishedDigest: string | null;
   status: DeploymentStatus;
+  idempotencyKey?: string | null;
+  errorMessage?: string | null;
   createdAt: number;
 }
 

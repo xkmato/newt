@@ -95,6 +95,65 @@ export class NewtDatabase {
     }
     this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec(NEWT_DB_SCHEMA_SQL);
+    this.runMigrations();
+  }
+
+  private runMigrations(): void {
+    // Backward-compatible migration: ensure `projects.owner_uid` exists on legacy DBs
+    const projectCols = this.db
+      .prepare("PRAGMA table_info(projects)")
+      .all() as Array<{ name: string }>;
+    if (!projectCols.some((c) => c.name === "owner_uid")) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN owner_uid TEXT NOT NULL DEFAULT 'uid:studio';");
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_uid, updated_at DESC);"
+      );
+    }
+
+    // Backward-compatible migration: ensure `deployments` has `idempotency_key`, `error_message`,
+    // and supports `status = 'failed'` in CHECK constraint
+    const depCols = this.db
+      .prepare("PRAGMA table_info(deployments)")
+      .all() as Array<{ name: string }>;
+    const depSchemaRow = this.db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'deployments'")
+      .get() as { sql?: string } | undefined;
+    const needsCheckUpgrade = Boolean(depSchemaRow?.sql && !depSchemaRow.sql.includes("'failed'"));
+
+    if (needsCheckUpgrade) {
+      this.db.exec(`
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE deployments_v2 (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          snapshot_id INTEGER NOT NULL REFERENCES vfs_snapshots(id) ON DELETE CASCADE,
+          principal_uid TEXT NOT NULL,
+          environment TEXT NOT NULL,
+          published_digest TEXT,
+          status TEXT NOT NULL CHECK (status IN ('active', 'detached', 'quarantined', 'failed')),
+          idempotency_key TEXT,
+          error_message TEXT,
+          created_at INTEGER NOT NULL
+        );
+        INSERT INTO deployments_v2 (id, project_id, snapshot_id, principal_uid, environment, published_digest, status, created_at)
+        SELECT id, project_id, snapshot_id, principal_uid, environment, published_digest, status, created_at FROM deployments;
+        DROP TABLE deployments;
+        ALTER TABLE deployments_v2 RENAME TO deployments;
+        CREATE INDEX IF NOT EXISTS idx_deployments_project ON deployments(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_deployments_idempotency ON deployments(idempotency_key);
+        PRAGMA foreign_keys = ON;
+      `);
+    } else {
+      if (!depCols.some((c) => c.name === "idempotency_key")) {
+        this.db.exec("ALTER TABLE deployments ADD COLUMN idempotency_key TEXT;");
+        this.db.exec(
+          "CREATE INDEX IF NOT EXISTS idx_deployments_idempotency ON deployments(idempotency_key);"
+        );
+      }
+      if (!depCols.some((c) => c.name === "error_message")) {
+        this.db.exec("ALTER TABLE deployments ADD COLUMN error_message TEXT;");
+      }
+    }
   }
 
   static open(dbPath: string): NewtDatabase {
@@ -154,6 +213,16 @@ export class NewtDatabase {
       .prepare("SELECT * FROM projects WHERE limb_id = ?")
       .get(limbId) as Record<string, unknown> | undefined;
     return row ? asProject(row) : null;
+  }
+
+  listProjects(ownerUid?: string): ProjectRecord[] {
+    if (ownerUid !== undefined) {
+      return this.listProjectsByOwner(ownerUid);
+    }
+    const rows = this.db
+      .prepare("SELECT * FROM projects ORDER BY updated_at DESC")
+      .all() as Array<Record<string, unknown>>;
+    return rows.map(asProject);
   }
 
   listProjectsByOwner(ownerUid: string): ProjectRecord[] {
@@ -342,14 +411,16 @@ export class NewtDatabase {
     environment: DeploymentEnvironment;
     publishedDigest?: string | null;
     status?: DeploymentStatus;
+    idempotencyKey?: string | null;
+    errorMessage?: string | null;
   }): DeploymentRecord {
     const id = makeId("dep");
     const now = Date.now();
     const status: DeploymentStatus = params.status ?? "active";
     this.db
       .prepare(
-        `INSERT INTO deployments (id, project_id, snapshot_id, principal_uid, environment, published_digest, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO deployments (id, project_id, snapshot_id, principal_uid, environment, published_digest, status, idempotency_key, error_message, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -359,6 +430,8 @@ export class NewtDatabase {
         params.environment,
         params.publishedDigest ?? null,
         status,
+        params.idempotencyKey ?? null,
+        params.errorMessage ?? null,
         now
       );
     return {
@@ -369,15 +442,14 @@ export class NewtDatabase {
       environment: params.environment,
       publishedDigest: params.publishedDigest ?? null,
       status,
+      idempotencyKey: params.idempotencyKey ?? null,
+      errorMessage: params.errorMessage ?? null,
       createdAt: now,
     };
   }
 
-  listDeploymentsForProject(projectId: string): DeploymentRecord[] {
-    const rows = this.db
-      .prepare("SELECT * FROM deployments WHERE project_id = ? ORDER BY created_at DESC")
-      .all(projectId) as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
+  private static asDeployment(r: Record<string, unknown>): DeploymentRecord {
+    return {
       id: String(r.id),
       projectId: String(r.project_id),
       snapshotId: Number(r.snapshot_id),
@@ -385,8 +457,31 @@ export class NewtDatabase {
       environment: r.environment as DeploymentEnvironment,
       publishedDigest: r.published_digest ? String(r.published_digest) : null,
       status: r.status as DeploymentStatus,
+      idempotencyKey: r.idempotency_key ? String(r.idempotency_key) : null,
+      errorMessage: r.error_message ? String(r.error_message) : null,
       createdAt: Number(r.created_at),
-    }));
+    };
+  }
+
+  listDeploymentsForProject(projectId: string): DeploymentRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM deployments WHERE project_id = ? ORDER BY created_at DESC, rowid DESC")
+      .all(projectId) as Array<Record<string, unknown>>;
+    return rows.map((r) => NewtDatabase.asDeployment(r));
+  }
+
+  getLatestDeploymentForProject(projectId: string): DeploymentRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM deployments WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(projectId) as Record<string, unknown> | undefined;
+    return row ? NewtDatabase.asDeployment(row) : null;
+  }
+
+  getDeploymentByIdempotencyKey(idempotencyKey: string): DeploymentRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM deployments WHERE idempotency_key = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(idempotencyKey) as Record<string, unknown> | undefined;
+    return row ? NewtDatabase.asDeployment(row) : null;
   }
 
   // --- Gallery Listings & Monetization Entitlements ---

@@ -23,6 +23,11 @@ export interface ValidationReport {
   diagnostics: Diagnostic[];
 }
 
+export interface WhoamiResponse {
+  uid: string;
+  issuer?: string;
+}
+
 export interface CapabilitiesResponse {
   contract_version: string;
   base: {
@@ -174,6 +179,11 @@ export type NewtHostToEmbedMessage =
       type: "newt.host.route_changed";
       route: string;
       availableSlots: string[];
+    }
+  | {
+      protocol: "newt.host.v1";
+      type: "newt.host.token";
+      userToken: string | null;
     };
 
 export type NewtEmbedToHostMessage =
@@ -186,9 +196,16 @@ export type NewtEmbedToHostMessage =
       limbId: string;
       compiledHtml: string;
     }
-  | {
-      protocol: "newt.host.v1";
-      type: "newt.embed.binding_updated";
-      limbIds: string[];
-    }
-  | { protocol: "newt.host.v1"; type: "newt.embed.close_drawer" };
+    | {
+        protocol: "newt.host.v1";
+        type: "newt.embed.binding_updated";
+        limbIds: string[];
+      }
+    | {
+        protocol: "newt.host.v1";
+        type: "newt.embed.preview_live";
+        limbId: string;
+        bindings: string[];
+      }
+    | { protocol: "newt.host.v1"; type: "newt.embed.request_token" }
+    | { protocol: "newt.host.v1"; type: "newt.embed.close_drawer" };

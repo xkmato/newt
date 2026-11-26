@@ -53,11 +53,14 @@ CREATE TABLE IF NOT EXISTS deployments (
   principal_uid TEXT NOT NULL,
   environment TEXT NOT NULL,
   published_digest TEXT,
-  status TEXT NOT NULL CHECK (status IN ('active', 'detached', 'quarantined')),
+  status TEXT NOT NULL CHECK (status IN ('active', 'detached', 'quarantined', 'failed')),
+  idempotency_key TEXT,
+  error_message TEXT,
   created_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_deployments_project ON deployments(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deployments_idempotency ON deployments(idempotency_key);
 
 CREATE TABLE IF NOT EXISTS gallery_listings (
   limb_id TEXT PRIMARY KEY,

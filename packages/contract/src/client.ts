@@ -1,4 +1,16 @@
-import type { CapabilitiesResponse, ValidationReport } from "./types.js";
+import type { CapabilitiesResponse, ValidationReport, WhoamiResponse } from "./types.js";
+
+export class SalamandaHttpError extends Error {
+  readonly status: number;
+  readonly responseBody: string;
+
+  constructor(operation: string, status: number, responseBody: string) {
+    super(`${operation} failed (${status}): ${responseBody}`);
+    this.name = "SalamandaHttpError";
+    this.status = status;
+    this.responseBody = responseBody;
+  }
+}
 
 export interface SalamandaClientConfig {
   /** Base URL of the Salamanda Control Plane, e.g. `http://127.0.0.1:7474` */
@@ -46,6 +58,27 @@ export class SalamandaControlPlaneClient {
       Object.assign(headers, ctx.extraHeaders);
     }
     return headers;
+  }
+
+  async whoami(auth: DelegationAuthContext): Promise<WhoamiResponse> {
+    const headers = this.delegatedHeaders(auth);
+    delete headers["Content-Type"];
+    const res = await fetch(`${this.baseUrl}/v1/whoami`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      throw new SalamandaHttpError("whoami", res.status, await res.text());
+    }
+    const body = (await res.json()) as { uid?: unknown; issuer?: unknown };
+    if (typeof body.uid !== "string" || !body.uid.trim()) {
+      throw new SalamandaHttpError("whoami", 502, "Missing uid in /v1/whoami response");
+    }
+    return {
+      uid: body.uid.trim(),
+      issuer: typeof body.issuer === "string" ? body.issuer : undefined,
+    };
   }
 
   async getCapabilities(): Promise<CapabilitiesResponse> {
