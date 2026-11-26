@@ -228,7 +228,13 @@ async function probeHealthFailOpen(
       credentials: "omit",
       signal: controller.signal,
     });
-    return res.ok;
+    const ok = res.ok;
+    if (typeof res.body?.cancel === "function") {
+      await res.body.cancel().catch(() => {});
+    } else if (typeof res.text === "function") {
+      await res.text().catch(() => {});
+    }
+    return ok;
   } catch {
     return false;
   } finally {
