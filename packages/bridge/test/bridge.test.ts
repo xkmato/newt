@@ -143,4 +143,29 @@ describe("Task 5.1 — @newt/bridge (<4 KB gzipped, fail-open, Shadow DOM & repe
       handle.destroy();
     }
   });
+
+  it("supports blog data-theme=obsidian detection and preserves window.NewtHost.getAuthToken without auto-mounting saved limbs", async () => {
+    installDom(
+      '<!DOCTYPE html><html data-theme="obsidian"><body><amphibian-slot data-salamanda-slot="article.footer" data-post-id="post-1"></amphibian-slot></body></html>'
+    );
+
+    const tokenProvider = async () => "firebase-id-token-abc";
+    window.NewtHost = { baseId: "blog", getAuthToken: tokenProvider };
+
+    const handle = await initNewtBridge({
+      newtOrigin: "http://127.0.0.1:3100",
+      fetchImpl: (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch,
+    });
+
+    try {
+      expect(handle.ready).toBe(true);
+      expect(window.NewtHost?.baseId).toBe("blog");
+      expect(await window.NewtHost?.getAuthToken?.()).toBe("firebase-id-token-abc");
+      // Decision D4: bridge must NOT auto-mount any limbs into slots until previewInline is explicitly called
+      const anchor = document.querySelector('[data-salamanda-slot="article.footer"]')!;
+      expect(anchor.getAttribute("data-salamanda-mounted")).toBeNull();
+    } finally {
+      handle.destroy();
+    }
+  });
 });

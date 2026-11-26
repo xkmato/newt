@@ -101,7 +101,9 @@ export function computeSlotInstanceKey(
 function currentTheme(): "light" | "dark" {
   const root = document.documentElement;
   if (root.classList.contains("dark")) return "dark";
-  if (root.getAttribute("data-theme") === "dark") return "dark";
+  const dt = root.getAttribute("data-theme");
+  if (dt === "dark" || dt === "obsidian") return "dark";
+  if (dt === "light" || dt === "paper" || dt === "daylight") return "light";
   try {
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   } catch {
@@ -114,11 +116,13 @@ function sampleHostCssVars(): Record<string, string> {
   try {
     const cs = getComputedStyle(document.documentElement);
     const map: Array<[string, string[]]> = [
-      ["--newt-bg", ["--background", "--bg", "--blog-bg"]],
-      ["--newt-card", ["--card", "--blog-card", "--surface"]],
-      ["--newt-fg", ["--foreground", "--fg", "--blog-fg"]],
-      ["--newt-muted", ["--muted-foreground", "--muted"]],
-      ["--newt-primary", ["--primary", "--blog-accent", "--accent"]],
+      ["--newt-bg", ["--bg-primary", "--background", "--bg", "--blog-bg"]],
+      ["--newt-surface", ["--bg-surface", "--muted", "--surface"]],
+      ["--newt-card", ["--bg-card", "--card", "--blog-card", "--surface"]],
+      ["--newt-fg", ["--text-main", "--foreground", "--fg", "--blog-fg"]],
+      ["--newt-muted", ["--text-muted", "--muted-foreground", "--muted"]],
+      ["--newt-primary", ["--accent", "--primary", "--blog-accent"]],
+      ["--newt-accent", ["--accent", "--blog-accent"]],
       ["--newt-border", ["--border", "--blog-border"]],
       ["--newt-radius", ["--radius"]],
     ];
@@ -390,6 +394,28 @@ export async function initNewtBridge(options: BridgeBootOptions): Promise<Bridge
         window.dispatchEvent(
           new CustomEvent("newt:bindings-updated", { detail: { limbIds: msg.limbIds ?? [] } })
         );
+      } else if (msg.type === "newt.embed.preview_live") {
+        window.dispatchEvent(
+          new CustomEvent("newt:preview-updated", {
+            detail: { limbId: msg.limbId ?? "", bindings: msg.bindings ?? [] },
+          })
+        );
+      } else if (msg.type === "newt.embed.request_token") {
+        void Promise.resolve(window.NewtHost?.getAuthToken?.())
+          .then((t) => {
+            drawerPort?.postMessage({
+              protocol: "newt.host.v1",
+              type: "newt.host.token",
+              userToken: t ?? null,
+            });
+          })
+          .catch(() => {
+            drawerPort?.postMessage({
+              protocol: "newt.host.v1",
+              type: "newt.host.token",
+              userToken: null,
+            });
+          });
       } else if (msg.type === "newt.embed.close_drawer") {
         closeDrawer();
       }
