@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { authenticateRequest, StudioAuthError } from "@/server/auth";
+import { isFeatureEnabled } from "@/server/config";
 import { getStudioDaemon } from "@/server/daemon";
-import { extractDelegatedPrincipal } from "@/server/salamanda-deployer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,10 +17,17 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ limbId: string }> }
 ) {
+  if (!isFeatureEnabled("gallery")) {
+    return NextResponse.json(
+      { error: "Not found: gallery feature is disabled (enable 'gallery' in NEWT_FEATURES)." },
+      { status: 404 }
+    );
+  }
+
   try {
+    const { principalUid } = await authenticateRequest(request);
     const { limbId } = await context.params;
     const body = GrantBodySchema.parse(await request.json());
-    const { principalUid } = extractDelegatedPrincipal(request);
     const daemon = getStudioDaemon();
 
     const listing = daemon.db.getGalleryListing(limbId);
@@ -42,6 +50,9 @@ export async function POST(
 
     return NextResponse.json({ granted: true, grant }, { status: 201 });
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 400 });
   }

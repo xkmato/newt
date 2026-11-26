@@ -32,6 +32,11 @@ function extractBaseId(systemPrompt: string): string {
   return match?.[1] ?? "xkmato";
 }
 
+function extractAuthorUid(systemPrompt: string): string {
+  const match = systemPrompt.match(/Author UID:\s*"([^"]+)"/i);
+  return match?.[1] ?? "uid:studio";
+}
+
 function extractPreferredSlot(userPrompt: string): string | null {
   const match = userPrompt.match(/Preferred Target Slot:\s*([a-z0-9._-]+)/i);
   return match?.[1] ?? null;
@@ -715,18 +720,35 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
         };
       }
 
-      const isStandalone = baseId === "standalone" || /standalone|widget|pomodoro|focus timer/i.test(intent) && baseId === "standalone";
+      const isStandalone =
+        baseId === "standalone" ||
+        (/standalone|widget|pomodoro|focus timer/i.test(intent) && baseId === "standalone");
+      const hasSlot = (id: string) => Boolean(manifest?.slots.some((s) => s.id === id));
       let slot =
         preferredSlot ??
         (isStandalone
           ? "standalone.canvas"
-          : /micropost|repeater|feed card|reaction/i.test(intent)
-            ? "micropost.footer"
+          : /micropost|repeater|feed card|reaction|timeline/i.test(intent)
+            ? hasSlot("feed.item.footer")
+              ? "feed.item.footer"
+              : hasSlot("timeline.item.footer")
+                ? "timeline.item.footer"
+                : "micropost.footer"
             : /header|tts|audio|listen|luganda/i.test(intent)
-              ? "blog.header"
-              : manifest?.slots.find((s) => s.id === "blog.sidebar")?.id ??
-                manifest?.slots[0]?.id ??
-                "blog.sidebar");
+              ? hasSlot("article.header")
+                ? "article.header"
+                : "blog.header"
+              : /footer|under each article|below article|comment/i.test(intent)
+                ? hasSlot("article.footer")
+                  ? "article.footer"
+                  : hasSlot("blog.footer")
+                    ? "blog.footer"
+                    : manifest?.slots[0]?.id ?? "blog.footer"
+                : manifest?.slots.find((s) => s.id === "article.sidebar")?.id ??
+                  manifest?.slots.find((s) => s.id === "article.footer")?.id ??
+                  manifest?.slots.find((s) => s.id === "blog.sidebar")?.id ??
+                  manifest?.slots[0]?.id ??
+                  "blog.sidebar");
 
       const slotObj = manifest?.slots.find((s) => s.id === slot);
       if (manifest && !slotObj && manifest.slots[0]) {
@@ -734,10 +756,20 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
       }
       const routePattern =
         slotObj?.routes[0] ??
-        (slot.startsWith("blog.") ? "/blog/*" : slot === "micropost.footer" ? "/feed" : "/*");
+        (slot.startsWith("article.")
+          ? "/[slug]"
+          : slot.startsWith("blog.")
+            ? "/blog/*"
+            : slot === "micropost.footer" || slot === "feed.item.footer"
+              ? "/feed"
+              : "/*");
 
-      const isRepeater = slotObj?.cardinality === "repeater" || slot === "micropost.footer";
-      const isHeader = slot === "blog.header";
+      const isRepeater =
+        slotObj?.cardinality === "repeater" ||
+        slot === "micropost.footer" ||
+        slot === "timeline.item.footer" ||
+        slot === "feed.item.footer";
+      const isHeader = slot === "blog.header" || slot === "article.header";
       const useSidecar = !isStandalone && !isHeader;
       const sidecarScope = useSidecar ? (/poll|shared|community/i.test(intent) ? "shared" : "personal") : "none";
 
@@ -746,10 +778,14 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
           ? "Focus Timer & Tasks"
           : "Standalone Interactive Widget"
         : isRepeater
-          ? "Micropost Bookmark Bar"
+          ? baseId === "blog"
+            ? "Feed Bookmark Bar"
+            : "Micropost Bookmark Bar"
           : isHeader
             ? "Article Audio Companion"
-            : "Blog Sidebar Margin Notes";
+            : baseId === "blog"
+              ? "Article Margin Notes"
+              : "Blog Sidebar Margin Notes";
 
       const limbId = slugify(displayName, "newt-limb");
       const componentName = isStandalone
@@ -772,6 +808,12 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, post_slug TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL",
                 },
               ];
+
+      const primaryReadable = manifest?.permissions_catalog?.readable_collections?.includes("posts")
+        ? ["posts"]
+        : manifest?.permissions_catalog?.readable_collections?.includes("blogposts")
+          ? ["blogposts"]
+          : [];
 
       return {
         data: {
@@ -796,10 +838,7 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
           },
           functions: [],
           permissions: {
-            dataRead:
-              manifest?.permissions_catalog?.readable_collections?.includes("blogposts") && !isStandalone
-                ? ["blogposts"]
-                : [],
+            dataRead: !isStandalone ? primaryReadable : [],
             egress: [],
             maxMemoryMb: 64,
             maxCpuMs: 400,
@@ -829,13 +868,14 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
       const slotMeta = manifest?.slots.find((s) => s.id === bp.slot);
       const isRepeater = slotMeta?.cardinality === "repeater" || bp.slot === "micropost.footer";
       const firstReadable = manifest?.permissions_catalog?.readable_collections?.[0];
+      const authorUid = extractAuthorUid(req.systemPrompt);
       const manifestToml = serializeLimbManifestToml({
         limb: {
           id: bp.limbId,
           name: bp.displayName,
           version: "0.1.0",
           level: 1,
-          author: "uid:studio",
+          author: authorUid,
           description: bp.description,
         },
         requires: {
@@ -900,13 +940,17 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
       const bp = parseBlueprintFromPrompt(req.userPrompt, req.systemPrompt);
       const manifest = this.manifestResolver?.(bp.baseId) ?? null;
       const slotMeta = manifest?.slots.find((s) => s.id === bp.slot);
-      const isRepeater = slotMeta?.cardinality === "repeater" || bp.slot === "micropost.footer";
+      const isRepeater =
+        slotMeta?.cardinality === "repeater" ||
+        bp.slot === "micropost.footer" ||
+        bp.slot === "timeline.item.footer" ||
+        bp.slot === "feed.item.footer";
       let code: string;
       if (bp.mode === "standalone-ui" || bp.baseId === "standalone") {
         code = buildStandaloneWidgetTsx(bp.displayName, this.lastUserIntent || bp.description);
       } else if (isRepeater) {
         code = buildRepeaterReactionTsx(bp.displayName);
-      } else if (bp.slot === "blog.header") {
+      } else if (bp.slot === "blog.header" || bp.slot === "article.header") {
         code = buildBlogHeaderTtsTsx(bp.displayName);
       } else {
         code = buildSidebarNotesTsx(
@@ -927,8 +971,8 @@ export class StudioDeterministicLlmProvider implements LlmProvider {
     if (req.role === "variant-patch") {
       // Extract either upstream conflict file or base source file so generated unified diff always applies cleanly via `git apply`!
       const fileMatch =
-        req.userPrompt.match(/=== UPSTREAM FILE:\s*([^\s=]+)\s*===\n([\s\S]*?)(?:\n=== |$)/) ??
-        req.userPrompt.match(/=== BASE FILE:\s*([^\s=]+)\s*===\n([\s\S]*?)(?:\n=== |$)/);
+        req.userPrompt.match(/=== UPSTREAM FILE:\s*([^\s=]+)\s*===\n([\s\S]*?)(?:\n=== |\n<\/untrusted_host_data>|$)/) ??
+        req.userPrompt.match(/=== BASE FILE:\s*([^\s=]+)\s*===\n([\s\S]*?)(?:\n=== |\n<\/untrusted_host_data>|$)/);
       const targetPath = fileMatch?.[1]?.trim() ?? "src/app/page.tsx";
       const rawContent = (fileMatch?.[2] ?? "<h1>Vanilla Base Layout</h1>\n").trimEnd();
       const lines = rawContent.split("\n");

@@ -20,6 +20,23 @@ import { VariantWorkbench } from "./VariantWorkbench";
 type WorkbenchTab = "preview" | "code" | "sidecar" | "contract" | "variant";
 
 const STARTER_PROMPTS: Record<string, Array<{ label: string; prompt: string; slot?: string }>> = {
+  blog: [
+    {
+      label: "Private Article Notes (article.footer)",
+      prompt: "Add a private notes box under each article using a personal SQLite sidecar table",
+      slot: "article.footer",
+    },
+    {
+      label: "Timeline Card Bookmark (Repeater)",
+      prompt: "Add a compact bookmark counter pill inside each timeline.item.footer repeater card",
+      slot: "timeline.item.footer",
+    },
+    {
+      label: "Article Audio Companion (Header)",
+      prompt: "Build an audio listen companion bar in article.header with play and pause controls",
+      slot: "article.header",
+    },
+  ],
   xkmato: [
     {
       label: "Blog Sidebar Margin Notes (SQLite)",
@@ -135,6 +152,18 @@ export function StudioWorkspace() {
       } else if (firstMount.slot.startsWith("blog.")) {
         setActiveRoute("/blog/launching-amphibian");
       }
+    } else if (activeBase.id === "blog") {
+      if (firstMount.slot.startsWith("feed.")) {
+        setActiveRoute("/feed");
+      } else if (firstMount.slot === "archive.header") {
+        setActiveRoute("/archive");
+      } else if (firstMount.slot === "book.chapter.header") {
+        setActiveRoute("/books/malleable-web");
+      } else if (firstMount.slot === "home.top" || firstMount.slot === "timeline.item.footer") {
+        setActiveRoute("/");
+      } else if (firstMount.slot.startsWith("article.")) {
+        setActiveRoute("/living-personal-software");
+      }
     }
   }, [activeBundle?.limbId, activeBundle?.manifest?.ui?.[0]?.slot, activeBase?.id]);
 
@@ -164,15 +193,18 @@ export function StudioWorkspace() {
       if (p.projects.length > 0) {
         await loadProjectDetail(p.projects[0]!.id);
       } else {
-        // Seed a clean default XKmato workspace project on first launch
+        // Seed a clean default workspace project on first launch
+        const targetBase = h.defaultBase ?? "xkmato";
+        const defaultSlot = targetBase === "blog" ? "article.footer" : "blog.sidebar";
+        setNewProjBase(targetBase);
         const createRes = await fetch("/api/v1/projects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: "XKmato Reading Companion",
+            name: targetBase === "blog" ? "Blog Reading Companion" : "XKmato Reading Companion",
             mode: "salamanda-limb",
-            baseTarget: "xkmato",
-            slotId: "blog.sidebar",
+            baseTarget: targetBase,
+            slotId: defaultSlot,
           }),
         });
         if (createRes.ok) {
@@ -475,13 +507,15 @@ export function StudioWorkspace() {
             ))}
           </select>
 
-          <a
-            href="/gallery"
-            className="studio-btn"
-            style={{ textDecoration: "none" }}
-          >
-            Gallery
-          </a>
+          {health?.features?.gallery ? (
+            <a
+              href="/gallery"
+              className="studio-btn"
+              style={{ textDecoration: "none" }}
+            >
+              Gallery
+            </a>
+          ) : null}
 
           <button
             type="button"

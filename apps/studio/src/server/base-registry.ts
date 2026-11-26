@@ -8,6 +8,9 @@ import {
 } from "@newt/base-sdk";
 import { xkmatoBasePack } from "@newt/base-xkmato";
 import type { BaseSpec, CapabilitiesResponse, SlotsManifest } from "@newt/contract";
+import { blogBasePack, blogFixtures } from "./blog-base";
+
+export { blogBasePack, blogFixtures, blogBaseSpec, blogPlatformManifest } from "./blog-base";
 
 export const standalonePlatformManifest: AmphibianPlatformManifest = {
   $schema: "https://amphibian.dev/schemas/v1/platform-manifest.schema.json",
@@ -145,7 +148,7 @@ export function baseSpecFromManifest(manifest: AmphibianPlatformManifest): BaseS
     data: {
       canonical: {
         mode: "base-api",
-        adapter: "bearer",
+        adapter: "base-api",
         readable_collections: [...(manifest.permissions_catalog?.readable_collections ?? [])],
         sensitive_collections: [...(manifest.permissions_catalog?.sensitive_collections ?? [])],
       },
@@ -156,6 +159,7 @@ export function baseSpecFromManifest(manifest: AmphibianPlatformManifest): BaseS
 export interface SerializedBasePack {
   id: string;
   builtIn: boolean;
+  source?: "builtin" | "well-known" | "html-auto-inspect" | "manifest";
   manifest: AmphibianPlatformManifest;
   baseSpec: BaseSpec;
   slotsManifest: SlotsManifest;
@@ -163,22 +167,37 @@ export interface SerializedBasePack {
   fixtures: Record<string, Array<Record<string, unknown>>>;
 }
 
+const BASE_SYNC_RETRY_COOLDOWN_MS = 3_000;
+
 export class BaseRegistry {
   private readonly packs = new Map<
     string,
     {
       builtIn: boolean;
+      source: "builtin" | "well-known" | "html-auto-inspect" | "manifest";
       pack: BasePack<Record<string, Array<Record<string, unknown>>>>;
     }
   >();
 
+  private syncedBaseUrl: string | null = null;
+  private lastFailedSyncAt = 0;
+  private lastFailedBaseUrl: string | null = null;
+  private inflightSync: Promise<SerializedBasePack | null> | null = null;
+
   constructor() {
+    this.packs.set(blogBasePack.manifest.base.id, {
+      builtIn: true,
+      source: "builtin",
+      pack: blogBasePack,
+    });
     this.packs.set(xkmatoBasePack.manifest.base.id, {
       builtIn: true,
+      source: "builtin",
       pack: xkmatoBasePack as unknown as BasePack<Record<string, Array<Record<string, unknown>>>>,
     });
     this.packs.set(standaloneBasePack.manifest.base.id, {
       builtIn: true,
+      source: "builtin",
       pack: standaloneBasePack,
     });
   }
@@ -188,9 +207,10 @@ export class BaseRegistry {
   }
 
   list(): SerializedBasePack[] {
-    return Array.from(this.packs.values()).map(({ builtIn, pack }) => ({
+    return Array.from(this.packs.values()).map(({ builtIn, source, pack }) => ({
       id: pack.manifest.base.id,
       builtIn,
+      source,
       manifest: pack.manifest,
       baseSpec: pack.baseSpec,
       slotsManifest: toSalamandaSlotsManifest(pack.manifest),
@@ -201,27 +221,118 @@ export class BaseRegistry {
 
   registerManifest(
     manifest: AmphibianPlatformManifest,
-    fixtures: Record<string, Array<Record<string, unknown>>> = {}
+    fixtures?: Record<string, Array<Record<string, unknown>>>,
+    source: "well-known" | "html-auto-inspect" | "manifest" = "manifest"
   ): SerializedBasePack {
     const check = validatePlatformManifest(manifest);
     if (!check.valid) {
       throw new Error(`Invalid AmphibianPlatformManifest: ${check.errors.join("; ")}`);
     }
+    const existingFixtures =
+      this.packs.get(manifest.base.id)?.pack.fixtures ??
+      (manifest.base.id === "blog" ? blogFixtures : {});
+    const mergedFixtures =
+      fixtures && Object.keys(fixtures).length > 0 ? fixtures : existingFixtures;
+
     const pack: BasePack<Record<string, Array<Record<string, unknown>>>> = {
       manifest,
       baseSpec: baseSpecFromManifest(manifest),
-      fixtures,
+      fixtures: mergedFixtures,
     };
-    this.packs.set(manifest.base.id, { builtIn: false, pack });
+    this.packs.set(manifest.base.id, { builtIn: false, source, pack });
     return {
       id: manifest.base.id,
       builtIn: false,
+      source,
       manifest,
       baseSpec: pack.baseSpec,
       slotsManifest: toSalamandaSlotsManifest(manifest),
       capabilities: toCapabilitiesResponse(manifest),
-      fixtures,
+      fixtures: mergedFixtures,
     };
+  }
+
+  /**
+   * Fetches `${baseUrl}/.well-known/amphibian.json`, validates it with `@newt/base-sdk`,
+   * and dynamically registers/updates the base in the registry.
+   * Gracefully falls back to the built-in offline fixture if the host is unreachable.
+   */
+  async syncFromBaseUrl(
+    explicitBaseUrl?: string,
+    options?: { force?: boolean; timeoutMs?: number }
+  ): Promise<SerializedBasePack | null> {
+    const rawUrl = (explicitBaseUrl ?? process.env.NEWT_BASE_URL ?? "").trim();
+    if (!rawUrl) return null;
+
+    let wellKnownUrl: string;
+    let normalizedOrigin: string;
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return null;
+      }
+      normalizedOrigin = parsed.origin;
+      wellKnownUrl = new URL("/.well-known/amphibian.json", parsed.origin).toString();
+    } catch {
+      return null;
+    }
+
+    if (!options?.force && this.syncedBaseUrl === normalizedOrigin) {
+      return null;
+    }
+
+    if (
+      !options?.force &&
+      this.lastFailedBaseUrl === normalizedOrigin &&
+      Date.now() - this.lastFailedSyncAt < BASE_SYNC_RETRY_COOLDOWN_MS
+    ) {
+      return null;
+    }
+
+    if (this.inflightSync) {
+      return this.inflightSync;
+    }
+
+    const timeoutMs = options?.timeoutMs ?? 2500;
+    this.inflightSync = (async () => {
+      try {
+        const res = await fetch(wellKnownUrl, { signal: AbortSignal.timeout(timeoutMs) });
+        if (!res.ok) {
+          this.lastFailedSyncAt = Date.now();
+          this.lastFailedBaseUrl = normalizedOrigin;
+          return null;
+        }
+        const manifest = (await res.json()) as AmphibianPlatformManifest;
+        const normalizedManifest: AmphibianPlatformManifest = {
+          ...manifest,
+          base: {
+            ...manifest.base,
+            origin: manifest.base.origin ?? normalizedOrigin,
+          },
+        };
+        const registered = this.registerManifest(normalizedManifest, undefined, "well-known");
+        this.syncedBaseUrl = normalizedOrigin;
+        this.lastFailedSyncAt = 0;
+        this.lastFailedBaseUrl = null;
+        return registered;
+      } catch {
+        this.lastFailedSyncAt = Date.now();
+        this.lastFailedBaseUrl = normalizedOrigin;
+        return null;
+      } finally {
+        this.inflightSync = null;
+      }
+    })();
+
+    return this.inflightSync;
+  }
+
+  /**
+   * Lazy sync helper invoked on `GET /api/v1/bases` and project creation/deploy so Studio
+   * recovers automatically if it booted before the `blog` base was ready.
+   */
+  async ensureBaseSynced(explicitBaseUrl?: string): Promise<SerializedBasePack | null> {
+    return this.syncFromBaseUrl(explicitBaseUrl);
   }
 
   async inspectAndRegisterUrl(targetUrl: string): Promise<{
@@ -238,7 +349,7 @@ export class BaseRegistry {
       const wkRes = await fetch(wellKnownUrl, { signal: AbortSignal.timeout(6000) });
       if (wkRes.ok) {
         const manifest = (await wkRes.json()) as AmphibianPlatformManifest;
-        const base = this.registerManifest(manifest);
+        const base = this.registerManifest(manifest, undefined, "well-known");
         return { source: "well-known", base };
       }
     } catch {
@@ -251,7 +362,7 @@ export class BaseRegistry {
     }
     const html = await htmlRes.text();
     const manifest = synthesizeManifestFromHtml(targetUrl, html);
-    const base = this.registerManifest(manifest);
+    const base = this.registerManifest(manifest, undefined, "html-auto-inspect");
     return { source: "html-auto-inspect", base };
   }
 }

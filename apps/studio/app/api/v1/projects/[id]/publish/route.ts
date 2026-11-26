@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { assertProjectOwnership, authenticateRequest, StudioAuthError } from "@/server/auth";
+import { isFeatureEnabled } from "@/server/config";
 import { getStudioDaemon } from "@/server/daemon";
 import {
   DeploymentAuthorizationError,
   EgressConsentRequiredError,
-  extractDelegatedPrincipal,
   publishProjectToSalamanda,
 } from "@/server/salamanda-deployer";
 
@@ -24,17 +25,30 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  if (!isFeatureEnabled("publish")) {
+    return NextResponse.json(
+      { error: "Not found: publish feature is disabled (enable 'publish' in NEWT_FEATURES)." },
+      { status: 404 }
+    );
+  }
+
   try {
+    const principal = await authenticateRequest(request);
     const { id } = await context.params;
+    const daemon = getStudioDaemon();
+    const project = daemon.db.getProject(id);
+    if (!project) {
+      return NextResponse.json({ error: `Project '${id}' not found` }, { status: 404 });
+    }
+    assertProjectOwnership(project, principal);
+
     const raw = await request.text();
     const body = raw.trim() ? PublishBodySchema.parse(JSON.parse(raw)) : {};
-    const { principalUid, auth } = extractDelegatedPrincipal(request);
-    const daemon = getStudioDaemon();
 
     const result = await publishProjectToSalamanda(daemon, {
       projectId: id,
-      principalUid,
-      auth,
+      principalUid: principal.principalUid,
+      auth: principal.auth,
       approvedEgressHosts: body.approvedEgressHosts,
       title: body.title,
       description: body.description,
@@ -45,6 +59,9 @@ export async function POST(
 
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     if (err instanceof EgressConsentRequiredError) {
       return NextResponse.json(
         {

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { authenticateRequest, StudioAuthError } from "@/server/auth";
 import { getStudioDaemon } from "@/server/daemon";
 import {
   createSalamandaClientFromEnv,
   EgressConsentRequiredError,
-  extractDelegatedPrincipal,
   updateMySalamandaBindings,
 } from "@/server/salamanda-deployer";
 
@@ -18,7 +18,7 @@ const PutBindingsSchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    const { principalUid } = extractDelegatedPrincipal(request);
+    const { principalUid } = await authenticateRequest(request);
     const client = createSalamandaClientFromEnv();
     const res = await client.getBindings(principalUid);
     return NextResponse.json({
@@ -26,6 +26,9 @@ export async function GET(request: Request) {
       limbs: res.limbs,
     });
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 502 });
   }
@@ -33,8 +36,8 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const { principalUid, auth } = await authenticateRequest(request);
     const body = PutBindingsSchema.parse(await request.json());
-    const { principalUid, auth } = extractDelegatedPrincipal(request);
     const daemon = getStudioDaemon();
 
     const updated = await updateMySalamandaBindings(daemon, {
@@ -46,6 +49,9 @@ export async function PUT(request: Request) {
 
     return NextResponse.json(updated);
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     if (err instanceof EgressConsentRequiredError) {
       return NextResponse.json(
         {
@@ -64,7 +70,7 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { principalUid, auth } = extractDelegatedPrincipal(request);
+    const { principalUid, auth } = await authenticateRequest(request);
     const client = createSalamandaClientFromEnv();
     const res = await client.resetBindings(auth, principalUid);
     return NextResponse.json({
@@ -72,6 +78,9 @@ export async function DELETE(request: Request) {
       limbs: res.limbs,
     });
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 502 });
   }

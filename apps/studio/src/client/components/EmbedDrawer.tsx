@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { BasePackDto, CompiledLimbBundle } from "../types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { BasePackDto, CompiledLimbBundle, DeploymentStatusDto } from "../types";
 
 interface HostInitPayload {
   baseId: string;
@@ -17,8 +17,11 @@ interface HostInitPayload {
 
 export function EmbedDrawer(props: { initialBaseId: string }) {
   const portRef = useRef<MessagePort | null>(null);
+  const tokenRef = useRef<string | null>(null);
+  const pendingTokenResolversRef = useRef<Array<(token: string | null) => void>>([]);
+
   const [host, setHost] = useState<HostInitPayload>({
-    baseId: props.initialBaseId || "xkmato",
+    baseId: props.initialBaseId || "blog",
     route: "/",
     availableSlots: [],
     theme: "light",
@@ -33,10 +36,73 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
   const [compiled, setCompiled] = useState<CompiledLimbBundle | null>(null);
   const [basePack, setBasePack] = useState<BasePackDto | null>(null);
   const [activated, setActivated] = useState(false);
+  const [previewedLive, setPreviewedLive] = useState(false);
+  const [deploymentInfo, setDeploymentInfo] = useState<DeploymentStatusDto | null>(null);
   const [unapprovedEgress, setUnapprovedEgress] = useState<string[]>([]);
 
-  const ensureBaseRegistered = async (info: HostInitPayload): Promise<BasePackDto | null> => {
+  const requestFreshToken = useCallback(async (): Promise<string | null> => {
+    if (!portRef.current) return tokenRef.current;
+    return new Promise<string | null>((resolve) => {
+      const timer = setTimeout(() => {
+        pendingTokenResolversRef.current = pendingTokenResolversRef.current.filter(
+          (fn) => fn !== onResolved
+        );
+        resolve(tokenRef.current);
+      }, 1500);
+      const onResolved = (tok: string | null) => {
+        clearTimeout(timer);
+        resolve(tok);
+      };
+      pendingTokenResolversRef.current.push(onResolved);
+      portRef.current?.postMessage({
+        protocol: "newt.host.v1",
+        type: "newt.embed.request_token",
+      });
+    });
+  }, []);
+
+  const buildAuthHeaders = useCallback(
+    async (withJson = true): Promise<Record<string, string>> => {
+      const headers: Record<string, string> = {};
+      if (withJson) {
+        headers["Content-Type"] = "application/json";
+      }
+      let token = tokenRef.current;
+      if (!token && portRef.current) {
+        token = await requestFreshToken();
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      return headers;
+    },
+    [requestFreshToken]
+  );
+
+  const pollDeploymentStatus = useCallback(
+    async (pid: string): Promise<DeploymentStatusDto | null> => {
+      try {
+        const headers = await buildAuthHeaders(false);
+        const res = await fetch(`/api/v1/projects/${encodeURIComponent(pid)}/deployment`, {
+          headers,
+        });
+        if (!res.ok) return null;
+        const info = (await res.json()) as DeploymentStatusDto;
+        setDeploymentInfo(info);
+        if (info.isBound) {
+          setActivated(true);
+        }
+        return info;
+      } catch {
+        return null;
+      }
+    },
+    [buildAuthHeaders]
+  );
+
+  const ensureBaseRegistered = useCallback(async (info: HostInitPayload): Promise<BasePackDto | null> => {
     const res = await fetch("/api/v1/bases");
+    if (!res.ok) return null;
     const data = (await res.json()) as { bases: BasePackDto[] };
     const existing = data.bases.find((b) => b.id === info.baseId);
     if (existing) {
@@ -60,7 +126,7 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
       }
     }
     return null;
-  };
+  }, []);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -76,8 +142,12 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
         if (!data || data.protocol !== "newt.host.v1") return;
 
         if (data.type === "newt.host.init") {
+          const nextToken = typeof data.userToken === "string" && data.userToken.trim()
+            ? data.userToken.trim()
+            : null;
+          tokenRef.current = nextToken;
           const nextHost: HostInitPayload = {
-            baseId: String(data.baseId ?? props.initialBaseId ?? "xkmato"),
+            baseId: String(data.baseId ?? props.initialBaseId ?? "blog"),
             manifestUrl: typeof data.manifestUrl === "string" ? data.manifestUrl : undefined,
             hostOrigin: typeof data.hostOrigin === "string" ? data.hostOrigin : undefined,
             route: String(data.route ?? "/"),
@@ -86,7 +156,7 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
               : [],
             selectedSlot: typeof data.selectedSlot === "string" ? data.selectedSlot : undefined,
             theme: data.theme === "dark" ? "dark" : "light",
-            userToken: typeof data.userToken === "string" ? data.userToken : null,
+            userToken: nextToken,
           };
           setHost(nextHost);
           if (nextHost.selectedSlot) {
@@ -96,6 +166,16 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
           }
           document.documentElement.classList.toggle("dark", nextHost.theme === "dark");
           void ensureBaseRegistered(nextHost);
+        } else if (data.type === "newt.host.token") {
+          const nextToken = typeof data.userToken === "string" && data.userToken.trim()
+            ? data.userToken.trim()
+            : null;
+          tokenRef.current = nextToken;
+          setHost((prev) => ({ ...prev, userToken: nextToken }));
+          const resolvers = pendingTokenResolversRef.current.splice(0);
+          for (const resolve of resolvers) {
+            resolve(nextToken);
+          }
         } else if (data.type === "newt.host.slot_picked") {
           setPickingSlot(false);
           const picked = String(data.slotId ?? "");
@@ -123,7 +203,17 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
       window.removeEventListener("message", onMessage);
       portRef.current?.close();
     };
-  }, [props.initialBaseId]);
+  }, [props.initialBaseId, ensureBaseRegistered]);
+
+  // Poll deployment status periodically when a project is active
+  useEffect(() => {
+    if (!projectId) return;
+    void pollDeploymentStatus(projectId);
+    const interval = setInterval(() => {
+      void pollDeploymentStatus(projectId);
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [projectId, pollDeploymentStatus]);
 
   const toggleSlotPicker = () => {
     const next = !pickingSlot;
@@ -156,19 +246,19 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
     if (!prompt.trim() || busy) return;
     setBusy(true);
     setActivated(false);
+    setPreviewedLive(false);
     setUnapprovedEgress([]);
     setStatus("Registering host manifest & synthesizing Limb...");
 
     try {
       const pack = (await ensureBaseRegistered(host)) ?? basePack;
+      const headers = await buildAuthHeaders(true);
+
       let pid = projectId;
       if (!pid) {
         const createRes = await fetch("/api/v1/projects", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-newt-uid": "uid:kenneth",
-          },
+          headers,
           body: JSON.stringify({
             name: `Embedded ${host.baseId} Limb`,
             mode: "salamanda-limb",
@@ -186,15 +276,15 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
 
       const chatRes = await fetch(`/api/v1/projects/${encodeURIComponent(pid)}/chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-newt-uid": "uid:kenneth",
-        },
+        headers,
         body: JSON.stringify({
           prompt: prompt.trim(),
           selectedSlot: selectedSlot || host.availableSlots[0] || undefined,
         }),
       });
+      if (!chatRes.ok) {
+        throw new Error(await chatRes.text());
+      }
 
       const rawSse = await chatRes.text();
       let savedBundle: CompiledLimbBundle | null = null;
@@ -230,19 +320,59 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
     }
   };
 
+  const handlePreviewLiveOnPage = async (approvedHosts: string[] = []) => {
+    if (!projectId || busy) return;
+    setBusy(true);
+    setStatus("Registering live Salamanda preview binding for your session...");
+    try {
+      const headers = await buildAuthHeaders(true);
+      const res = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/preview`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ approvedEgressHosts: approvedHosts }),
+      });
+      const body = (await res.json()) as {
+        previewed?: boolean;
+        limbId?: string;
+        bindings?: string[];
+        code?: string;
+        unapprovedEgressHosts?: string[];
+        error?: string;
+      };
+
+      if (res.status === 409 && body.code === "NEWT-CONSENT-001") {
+        setUnapprovedEgress(body.unapprovedEgressHosts ?? []);
+        setStatus("Human egress approval required before previewing this Limb live.");
+        return;
+      }
+      if (!res.ok) {
+        setStatus(`Live preview failed: ${body.error ?? res.statusText}`);
+        return;
+      }
+
+      setPreviewedLive(true);
+      setUnapprovedEgress([]);
+      setStatus(`Live preview active for '${body.limbId}'. Reload host page to see Salamanda SSR mount.`);
+      portRef.current?.postMessage({
+        protocol: "newt.host.v1",
+        type: "newt.embed.preview_live",
+        limbId: body.limbId ?? "",
+        bindings: body.bindings ?? [],
+      });
+      void pollDeploymentStatus(projectId);
+    } catch (err) {
+      setStatus(`Live preview error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleActivateOnSalamanda = async (approvedHosts: string[] = []) => {
     if (!projectId || busy) return;
     setBusy(true);
     setStatus("Deploying & binding Limb on Salamanda Control Plane...");
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "x-newt-uid": "uid:kenneth",
-      };
-      if (host.userToken && host.userToken.split(".").length === 3) {
-        headers.Authorization = `Bearer ${host.userToken}`;
-      }
-
+      const headers = await buildAuthHeaders(true);
       const res = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/deploy`, {
         method: "POST",
         headers,
@@ -267,6 +397,7 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
       }
       if (!res.ok) {
         setStatus(`Activation failed: ${body.error ?? res.statusText}`);
+        void pollDeploymentStatus(projectId);
         return;
       }
 
@@ -278,8 +409,10 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
         type: "newt.embed.binding_updated",
         limbIds: body.bindings ?? [],
       });
+      void pollDeploymentStatus(projectId);
     } catch (err) {
       setStatus(`Activation error: ${err instanceof Error ? err.message : String(err)}`);
+      if (projectId) void pollDeploymentStatus(projectId);
     } finally {
       setBusy(false);
     }
@@ -298,6 +431,8 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
       ...(basePack?.manifest.slots.map((s) => s.id) ?? []),
     ])
   );
+
+  const latestDeploy = deploymentInfo?.latestDeployment ?? null;
 
   return (
     <div
@@ -371,6 +506,42 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
           {status}
         </div>
 
+        {latestDeploy ? (
+          <div
+            data-testid="embed-deployment-status"
+            style={{
+              padding: "10px 12px",
+              borderRadius: "8px",
+              border: "1px solid var(--studio-border)",
+              background: "var(--studio-surface)",
+              fontSize: "12px",
+              display: "grid",
+              gap: "4px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>
+                Deployment: <strong>{latestDeploy.status}</strong>{" "}
+                {deploymentInfo?.isBound ? "· Bound on Salamanda ✓" : ""}
+              </span>
+              {latestDeploy.status === "failed" ? (
+                <button
+                  type="button"
+                  className="studio-btn"
+                  data-testid="embed-retry-deploy-btn"
+                  disabled={busy}
+                  onClick={() => void handleActivateOnSalamanda()}
+                >
+                  Retry Deploy
+                </button>
+              ) : null}
+            </div>
+            {latestDeploy.errorMessage ? (
+              <div style={{ color: "#ef4444" }}>{latestDeploy.errorMessage}</div>
+            ) : null}
+          </div>
+        ) : null}
+
         {unapprovedEgress.length > 0 ? (
           <div
             role="alert"
@@ -417,7 +588,7 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
               Slot: <code>{compiled.manifest?.ui?.[0]?.slot}</code> · Sidecar:{" "}
               <code>{compiled.manifest?.permissions.sidecar ?? "none"}</code>
             </div>
-            <div style={{ display: "flex", gap: "8px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className="studio-btn"
@@ -425,6 +596,15 @@ export function EmbedDrawer(props: { initialBaseId: string }) {
                 onClick={() => pushInlinePreview(compiled, basePack)}
               >
                 Preview Inline
+              </button>
+              <button
+                type="button"
+                className="studio-btn"
+                data-testid="embed-preview-live-btn"
+                disabled={busy || !projectId}
+                onClick={() => void handlePreviewLiveOnPage()}
+              >
+                {previewedLive ? "Live Preview Active ✓" : "Preview Live on Page"}
               </button>
               <button
                 type="button"

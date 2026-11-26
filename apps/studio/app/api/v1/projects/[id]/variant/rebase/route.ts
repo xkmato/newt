@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { assertProjectOwnership, authenticateRequest, StudioAuthError } from "@/server/auth";
+import { isFeatureEnabled } from "@/server/config";
 import { getStudioDaemon } from "@/server/daemon";
 
 export const runtime = "nodejs";
@@ -15,20 +17,24 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  if (!isFeatureEnabled("l3")) {
+    return NextResponse.json(
+      { error: "Not found: Level 3 Variant authoring is disabled (enable 'l3' in NEWT_FEATURES)." },
+      { status: 404 }
+    );
+  }
+
   try {
+    const principal = await authenticateRequest(request);
     const { id } = await context.params;
-    if (process.env.NEWT_ENABLE_L3_VARIANTS !== "1") {
-      return NextResponse.json(
-        { error: "Level 3 Variant authoring is disabled. Set NEWT_ENABLE_L3_VARIANTS=1." },
-        { status: 403 }
-      );
-    }
 
     const daemon = getStudioDaemon();
     const project = daemon.db.getProject(id);
     if (!project) {
       return NextResponse.json({ error: `Project '${id}' not found` }, { status: 404 });
     }
+    assertProjectOwnership(project, principal);
+
     const basePack = daemon.bases.get(project.baseTarget);
     if (!basePack) {
       return NextResponse.json({ error: `Unknown base target '${project.baseTarget}'` }, { status: 400 });
@@ -88,6 +94,9 @@ export async function POST(
       variant: rematerialized,
     });
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 400 });
   }

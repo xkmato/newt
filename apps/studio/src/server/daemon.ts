@@ -1,5 +1,3 @@
-import os from "node:os";
-import path from "node:path";
 import {
   type AgentTurnEvent,
   type LlmProvider,
@@ -9,7 +7,11 @@ import {
 } from "@newt/agents";
 import type { BasePack } from "@newt/base-sdk";
 import { type CompiledLimbBundle, compileLimbVfs, type NewtVfs } from "@newt/compiler";
-import { serializeLimbManifestToml } from "@newt/contract";
+import {
+  namespaceLimbId,
+  SalamandaControlPlaneClient,
+  serializeLimbManifestToml,
+} from "@newt/contract";
 import {
   type MessageRecord,
   NewtDatabase,
@@ -18,7 +20,14 @@ import {
   type VfsFileDiff,
   type VfsSnapshotRecord,
 } from "@newt/db";
+import { getSalamandaConfigFromEnv } from "./auth";
 import { BaseRegistry } from "./base-registry";
+import {
+  getEnabledFeatures,
+  isFeatureEnabled,
+  isLocalEnv,
+  resolveStudioDbPath,
+} from "./config";
 import { resolveStudioLlmProvider } from "./studio-provider";
 import { VariantManager } from "./variant-manager";
 
@@ -34,6 +43,7 @@ function sanitizeLimbId(raw: string): string {
 export function createStarterVfs(params: {
   limbId: string;
   name: string;
+  ownerUid?: string;
   mode: ProjectMode;
   basePack: BasePack<Record<string, Array<Record<string, unknown>>>>;
   slotId?: string;
@@ -42,7 +52,9 @@ export function createStarterVfs(params: {
     params.slotId ??
     (params.mode === "standalone-ui"
       ? params.basePack.manifest.slots[0]?.id ?? "standalone.canvas"
-      : params.basePack.manifest.slots.find((s) => s.id === "blog.sidebar")?.id ??
+      : params.basePack.manifest.slots.find((s) => s.id === "article.footer")?.id ??
+        params.basePack.manifest.slots.find((s) => s.id === "article.sidebar")?.id ??
+        params.basePack.manifest.slots.find((s) => s.id === "blog.sidebar")?.id ??
         params.basePack.manifest.slots[0]?.id ??
         "blog.sidebar");
 
@@ -55,7 +67,7 @@ export function createStarterVfs(params: {
       name: params.name,
       version: "0.1.0",
       level: 1,
-      author: "uid:studio",
+      author: params.ownerUid ?? "uid:studio",
       description: `Starter ${params.mode} project for ${params.basePack.manifest.base.name}`,
     },
     requires: {
@@ -116,22 +128,27 @@ export interface StudioDaemonOptions {
   provider?: LlmProvider;
 }
 
+const CAPABILITIES_CACHE_TTL_MS = 15_000;
+
 export class StudioDaemon {
   readonly db: NewtDatabase;
   readonly bases: BaseRegistry;
   readonly variants: VariantManager;
   readonly dbPath: string;
   private readonly overrideProvider?: LlmProvider;
+  private cachedL2JsRuntime: { value: boolean; expiresAt: number; url: string } | null = null;
 
   constructor(options: StudioDaemonOptions = {}) {
-    this.dbPath =
-      options.dbPath ??
-      process.env.NEWT_DB_PATH ??
-      path.join(os.homedir(), ".newt", "studio.sqlite");
-    this.db = this.dbPath === ":memory:" ? NewtDatabase.openInMemory() : NewtDatabase.open(this.dbPath);
+    this.dbPath = resolveStudioDbPath(options.dbPath);
+    this.db =
+      this.dbPath === ":memory:" ? NewtDatabase.openInMemory() : NewtDatabase.open(this.dbPath);
     this.bases = new BaseRegistry();
     this.variants = new VariantManager();
     this.overrideProvider = options.provider;
+    // Kick off non-blocking manifest sync if NEWT_BASE_URL is configured (falls back gracefully if offline)
+    if (process.env.NEWT_BASE_URL?.trim()) {
+      void this.bases.syncFromBaseUrl();
+    }
   }
 
   private getProvider(): { provider: LlmProvider; mode: "live" | "studio-local" | "custom" } {
@@ -141,24 +158,68 @@ export class StudioDaemon {
     return resolveStudioLlmProvider((baseId) => this.bases.get(baseId)?.manifest ?? null);
   }
 
+  /**
+   * Checks Salamanda `GET /v1/capabilities` for `features.l2_js_runtime`
+   * (cached for 15s, fail-open to `false` so v1.0 `// @host:` DSL remains the safe default).
+   */
+  async resolveL2JsRuntimeCapability(): Promise<boolean> {
+    const cfg = getSalamandaConfigFromEnv();
+    if (
+      this.cachedL2JsRuntime &&
+      this.cachedL2JsRuntime.url === cfg.controlPlaneUrl &&
+      Date.now() < this.cachedL2JsRuntime.expiresAt
+    ) {
+      return this.cachedL2JsRuntime.value;
+    }
+
+    // Avoid external network calls during unit tests unless SALAMANDA_CONTROL_PLANE_URL is explicitly configured
+    if (process.env.VITEST && !process.env.SALAMANDA_CONTROL_PLANE_URL) {
+      return false;
+    }
+
+    try {
+      const client = new SalamandaControlPlaneClient(cfg);
+      const caps = await client.getCapabilities();
+      const flag = caps.features?.l2_js_runtime;
+      const enabled = Boolean(flag && flag !== "disabled");
+      this.cachedL2JsRuntime = {
+        value: enabled,
+        expiresAt: Date.now() + CAPABILITIES_CACHE_TTL_MS,
+        url: cfg.controlPlaneUrl,
+      };
+      return enabled;
+    } catch {
+      this.cachedL2JsRuntime = {
+        value: false,
+        expiresAt: Date.now() + 5_000,
+        url: cfg.controlPlaneUrl,
+      };
+      return false;
+    }
+  }
+
   health() {
     const resolved = this.getProvider();
+    const features = getEnabledFeatures();
     return {
       ok: true,
       service: "newt-studio-daemon",
       version: "0.1.0",
+      env: isLocalEnv() ? "local" : "production",
       provider: {
         name: resolved.provider.providerName,
         model: resolved.provider.modelName,
         mode: resolved.mode,
       },
       bases: this.bases.list().map((b) => b.id),
-      l3Enabled: process.env.NEWT_ENABLE_L3_VARIANTS === "1",
+      defaultBase: process.env.NEWT_BASE_URL?.trim() ? "blog" : "xkmato",
+      features,
+      l3Enabled: features.l3,
     };
   }
 
-  listProjects(ownerUid: string): ProjectRecord[] {
-    return this.db.listProjectsByOwner(ownerUid);
+  listProjects(ownerUid?: string): ProjectRecord[] {
+    return this.db.listProjects(ownerUid);
   }
 
   async createProject(params: {
@@ -174,30 +235,44 @@ export class StudioDaemon {
     snapshot: VfsSnapshotRecord;
     compiled: CompiledLimbBundle;
   }> {
-    const baseTarget =
-      params.baseTarget ?? (params.mode === "standalone-ui" ? "standalone" : "xkmato");
+    await this.bases.ensureBaseSynced();
+
+    const defaultTarget =
+      params.mode === "standalone-ui"
+        ? "standalone"
+        : process.env.NEWT_BASE_URL?.trim()
+          ? "blog"
+          : "xkmato";
+    const baseTarget = params.baseTarget ?? defaultTarget;
     const basePack = this.bases.get(baseTarget);
     if (!basePack) {
       throw new Error(`Unknown base target '${baseTarget}'`);
     }
 
-    const baseLimbId = sanitizeLimbId(params.limbId ?? params.name);
+    const baseLimbId = params.limbId
+      ? sanitizeLimbId(params.limbId)
+      : namespaceLimbId(params.ownerUid, params.name);
     const existing = this.db.getProjectByLimbId(baseLimbId);
-    const limbId = existing ? `${baseLimbId}-${Date.now().toString(36).slice(-4)}` : baseLimbId;
+    const limbId = existing
+      ? `${baseLimbId.slice(0, 58)}-${Date.now().toString(36).slice(-4)}`
+      : baseLimbId;
 
     const files =
       params.initialFiles ??
       createStarterVfs({
         limbId,
         name: params.name,
+        ownerUid: params.ownerUid,
         mode: params.mode,
         basePack,
         slotId: params.slotId,
       });
 
+    const l2JsRuntime = await this.resolveL2JsRuntimeCapability();
     const compiled = await compileLimbVfs(files, {
       platformManifest: basePack.manifest,
       baseSpec: basePack.baseSpec,
+      l2JsRuntime,
       runSmokeTest: true,
     });
 
@@ -274,6 +349,7 @@ export class StudioDaemon {
     if (!project) {
       throw new Error(`Project '${projectId}' not found`);
     }
+    await this.bases.ensureBaseSynced();
     const basePack = this.bases.get(project.baseTarget);
     if (!basePack) {
       throw new Error(`Base target '${project.baseTarget}' is not registered`);
@@ -294,10 +370,12 @@ export class StudioDaemon {
       }
     }
 
+    const l2JsRuntime = await this.resolveL2JsRuntimeCapability();
     const compiled = await compileLimbVfs(nextFiles, {
       platformManifest: basePack.manifest,
       baseSpec: basePack.baseSpec,
       approvedEgressHosts: params.approvedEgressHosts,
+      l2JsRuntime,
       runSmokeTest: true,
     });
 
@@ -349,6 +427,7 @@ export class StudioDaemon {
     enableL3?: boolean;
     baseSourceFiles?: Record<string, string>;
     rebaseConflict?: RebaseConflictContext;
+    untrustedHostContext?: string;
     onEvent?: (event: AgentTurnEvent) => void;
   }): Promise<{
     result: OrchestratorResult;
@@ -359,12 +438,13 @@ export class StudioDaemon {
     if (!project) {
       throw new Error(`Project '${params.projectId}' not found`);
     }
+    await this.bases.ensureBaseSynced();
     const basePack = this.bases.get(project.baseTarget);
     if (!basePack) {
       throw new Error(`Base target '${project.baseTarget}' is not registered`);
     }
 
-    let threads = this.db.listThreadsForProject(project.id);
+    const threads = this.db.listThreadsForProject(project.id);
     const thread = threads[0] ?? this.db.createThread(project.id);
 
     this.db.appendMessage({
@@ -375,9 +455,10 @@ export class StudioDaemon {
 
     const current = this.db.getCurrentSnapshot(project.id);
     const { provider } = this.getProvider();
-    const l3GateOpen = params.enableL3 ?? process.env.NEWT_ENABLE_L3_VARIANTS === "1";
+    const l3GateOpen = params.enableL3 ?? isFeatureEnabled("l3");
+    const l2JsRuntime = await this.resolveL2JsRuntimeCapability();
 
-    // When NEWT_ENABLE_L3_VARIANTS is open and the base supports variants, advertise level 3
+    // When L3 is enabled and the base supports variants, advertise level 3
     const effectiveManifest =
       l3GateOpen && !basePack.manifest.runtime.allow_levels.includes(3)
         ? {
@@ -420,6 +501,8 @@ export class StudioDaemon {
       enableL3: l3GateOpen,
       baseSourceFiles,
       rebaseConflict: params.rebaseConflict,
+      untrustedHostContext: params.untrustedHostContext,
+      l2JsRuntime,
       runSmokeTest: true,
       onEvent: params.onEvent,
     });

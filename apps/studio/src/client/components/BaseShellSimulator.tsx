@@ -61,6 +61,9 @@ export function BaseShellSimulator(props: {
   const [standaloneWidth, setStandaloneWidth] = useState<"card" | "mobile" | "full">("card");
   const [showAllSlots, setShowAllSlots] = useState(false);
   const [extraMicroposts, setExtraMicroposts] = useState<MicropostDoc[]>([]);
+  const [manifestThemeVariant, setManifestThemeVariant] = useState<"paper" | "daylight" | "obsidian">(
+    theme === "dark" ? "obsidian" : "paper"
+  );
 
   const isStandalone = base.id === "standalone";
   const isXkmato = base.id === "xkmato";
@@ -453,18 +456,184 @@ export function BaseShellSimulator(props: {
     );
   }
 
-  // 3. Generic Pluggable Base Shell for ANY Custom AmphibianPlatformManifest
+  // 3. Generic Manifest-Driven Base Shell for `blog` and ANY Custom AmphibianPlatformManifest
+  const supportsMultiTheme =
+    (base.manifest.theme.dark_mode_selector ?? "").includes("obsidian") ||
+    (base.manifest.theme.dark_mode_selector ?? "").includes("data-theme");
+  const effectiveSimTheme: ResolvedTheme = supportsMultiTheme
+    ? manifestThemeVariant === "obsidian"
+      ? "dark"
+      : "light"
+    : theme;
+
+  const samplePost = (base.fixtures.posts?.[0] ?? null) as Record<string, unknown> | null;
+  const sampleFeed = (base.fixtures.feed ?? []) as Array<Record<string, unknown>>;
+  const sampleBook = (base.fixtures.books?.[0] ?? null) as Record<string, unknown> | null;
+  const sampleNewsletter = (base.fixtures.newsletters?.[0] ?? null) as Record<string, unknown> | null;
+
+  const resolveSampleRoute = (pattern: string): string => {
+    if (pattern === "/*") return "/";
+    if (pattern === "/[slug]") return `/${String(samplePost?.slug ?? "living-personal-software")}`;
+    if (pattern === "/feed/[id]") return `/feed/${String(sampleFeed[0]?.id ?? "feed-1")}`;
+    if (pattern === "/books/[slug]") return `/books/${String(sampleBook?.slug ?? "malleable-web")}`;
+    if (pattern === "/newsletter/[slug]") {
+      return `/newsletter/${String(sampleNewsletter?.slug ?? "issue-12-amphibian")}`;
+    }
+    return pattern.replace(/\*$/, "sample");
+  };
+
+  const routeEntries = Array.from(
+    new Map(
+      base.manifest.slots
+        .flatMap((slot) => slot.routes)
+        .filter((r) => r !== "/*")
+        .map((pattern) => {
+          const resolved = resolveSampleRoute(pattern);
+          return [resolved, { pattern, path: resolved }] as const;
+        })
+    ).values()
+  );
+  if (routeEntries.length === 0) {
+    routeEntries.push({ pattern: "/", path: "/" });
+  }
+
+  const normalizedRoute = routeEntries.some((r) => r.path === activeRoute)
+    ? activeRoute
+    : routeEntries[0]!.path;
+
+  const routeMatchesPattern = (route: string, pattern: string): boolean => {
+    if (pattern === "/*" || pattern === route) return true;
+    if (pattern.endsWith("/*")) {
+      return route.startsWith(pattern.slice(0, -1));
+    }
+    if (pattern.includes("[")) {
+      const regexStr =
+        "^" +
+        pattern
+          .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+          .replace(/\\\[[^\]]+\\\]/g, "[^/]+") +
+        "$";
+      return new RegExp(regexStr).test(route);
+    }
+    return false;
+  };
+
+  const matchingSlots = base.manifest.slots.filter((slot) =>
+    slot.routes.some((pat) => routeMatchesPattern(normalizedRoute, pat))
+  );
+
+  const buildContextForSlot = (
+    slot: BasePackDto["manifest"]["slots"][number],
+    item?: Record<string, unknown>,
+    idx = 0
+  ): Record<string, string> => {
+    const ctx: Record<string, string> = {};
+    for (const prop of slot.context_props ?? []) {
+      if (prop === "post-id") ctx[prop] = String(item?.id ?? samplePost?.id ?? `item-${idx + 1}`);
+      else if (prop === "item-id") ctx[prop] = String(item?.id ?? `item-${idx + 1}`);
+      else if (prop === "slug" || prop === "post-slug") {
+        ctx[prop] = String(item?.slug ?? samplePost?.slug ?? "living-personal-software");
+      } else if (prop === "reading-time") {
+        ctx[prop] = String(item?.readingTime ?? samplePost?.readingTime ?? 5);
+      } else if (prop === "audience") {
+        ctx[prop] = String(item?.audience ?? samplePost?.audience ?? "everyone");
+      } else if (prop === "book-slug") {
+        ctx[prop] = String(sampleBook?.slug ?? "malleable-web");
+      } else if (prop === "chapter-id") {
+        ctx[prop] = "ch-1";
+      } else if (prop === "kind") {
+        ctx[prop] = item?.slug ? "post" : "feed";
+      } else {
+        ctx[prop] = `${prop}-${idx + 1}`;
+      }
+    }
+    return ctx;
+  };
+
+  const repeaterItems: Array<Record<string, unknown>> =
+    sampleFeed.length > 0
+      ? sampleFeed
+      : (base.fixtures.posts?.length ?? 0) > 0
+        ? (base.fixtures.posts as Array<Record<string, unknown>>)
+        : [{ id: "item-1", text: "Sample Item #1" }, { id: "item-2", text: "Sample Item #2" }];
+
   return (
-    <div style={{ padding: "20px", display: "grid", gap: "14px" }} data-testid="custom-base-simulator">
-      <div className="xkmato-shell" style={{ padding: "20px", display: "grid", gap: "16px" }}>
-        <header style={{ borderBottom: "1px solid var(--studio-border)", paddingBottom: "12px" }}>
-          <h1 style={{ margin: 0, fontSize: "18px" }}>{base.manifest.base.name}</h1>
-          <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "var(--studio-muted)" }}>
-            Framework: {base.manifest.base.framework} · Origin: {base.manifest.base.origin ?? "local"}
-          </p>
+    <div style={{ padding: "16px", display: "grid", gap: "12px" }} data-testid="custom-base-simulator">
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "8px",
+        }}
+      >
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {routeEntries.map((r) => (
+            <button
+              key={r.path}
+              type="button"
+              className={`studio-btn ${normalizedRoute === r.path ? "primary" : ""}`}
+              data-testid={`sim-route-${r.path}`}
+              onClick={() => onRouteChange(r.path)}
+            >
+              {r.pattern}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          {supportsMultiTheme ? (
+            <div style={{ display: "inline-flex", gap: "4px" }} role="group" aria-label="Host theme">
+              {(["paper", "daylight", "obsidian"] as const).map((variant) => (
+                <button
+                  key={variant}
+                  type="button"
+                  className={`studio-btn ${manifestThemeVariant === variant ? "primary" : ""}`}
+                  style={{ padding: "3px 8px", fontSize: "11.5px" }}
+                  onClick={() => setManifestThemeVariant(variant)}
+                >
+                  {variant}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+            <input
+              type="checkbox"
+              checked={showAllSlots}
+              onChange={(e) => setShowAllSlots(e.target.checked)}
+            />
+            Show empty slots
+          </label>
+        </div>
+      </div>
+
+      <div
+        className="xkmato-shell"
+        data-theme={supportsMultiTheme ? manifestThemeVariant : effectiveSimTheme}
+        style={{ padding: "20px", display: "grid", gap: "16px" }}
+      >
+        <header
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            borderBottom: "1px solid var(--studio-border)",
+            paddingBottom: "12px",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0, fontSize: "18px" }}>{base.manifest.base.name}</h1>
+            <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "var(--studio-muted)" }}>
+              Route: <code>{normalizedRoute}</code> · Framework: {base.manifest.base.framework} · Origin:{" "}
+              {base.manifest.base.origin ?? "local"}
+            </p>
+          </div>
+          <span className="studio-badge">Base: {base.id}</span>
         </header>
 
-        {base.manifest.slots.map((slot) => (
+        {matchingSlots.map((slot) => (
           <section
             key={slot.id}
             style={{
@@ -480,28 +649,47 @@ export function BaseShellSimulator(props: {
             </div>
             {slot.cardinality === "repeater" ? (
               <div style={{ display: "grid", gap: "8px" }}>
-                {["item-1", "item-2"].map((itemId) => (
-                  <LimbSlotFrame
-                    key={itemId}
-                    broker={broker}
-                    bundle={bundle}
-                    slotId={slot.id}
-                    route={slot.routes[0] ?? "/"}
-                    instanceKey={itemId}
-                    contextProps={{ "item-id": itemId }}
-                    theme={theme}
-                    showSlotOutline={true}
-                  />
-                ))}
+                {repeaterItems.map((item, idx) => {
+                  const itemId = String(item.id ?? `item-${idx + 1}`);
+                  return (
+                    <div
+                      key={itemId}
+                      style={{
+                        padding: "10px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--studio-border)",
+                        display: "grid",
+                        gap: "6px",
+                      }}
+                    >
+                      {item.text || item.title ? (
+                        <div style={{ fontSize: "13px" }}>
+                          {String(item.title ?? item.text)}
+                        </div>
+                      ) : null}
+                      <LimbSlotFrame
+                        broker={broker}
+                        bundle={bundle}
+                        slotId={slot.id}
+                        route={normalizedRoute}
+                        instanceKey={itemId}
+                        contextProps={buildContextForSlot(slot, item, idx)}
+                        theme={effectiveSimTheme}
+                        showSlotOutline={showAllSlots || true}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <LimbSlotFrame
                 broker={broker}
                 bundle={bundle}
                 slotId={slot.id}
-                route={slot.routes[0] ?? "/"}
-                theme={theme}
-                showSlotOutline={true}
+                route={normalizedRoute}
+                contextProps={buildContextForSlot(slot)}
+                theme={effectiveSimTheme}
+                showSlotOutline={showAllSlots || true}
               />
             )}
           </section>

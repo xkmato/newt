@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { assertProjectOwnership, authenticateRequest, StudioAuthError } from "@/server/auth";
+import { isFeatureEnabled } from "@/server/config";
 import { getStudioDaemon } from "@/server/daemon";
 import { VariantPolicyError } from "@/server/variant-manager";
 
@@ -17,19 +19,38 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await context.params;
-  if (process.env.NEWT_ENABLE_L3_VARIANTS !== "1") {
+  if (!isFeatureEnabled("l3")) {
     return Response.json(
-      { error: "Level 3 Variant authoring is disabled. Set NEWT_ENABLE_L3_VARIANTS=1." },
-      { status: 403 }
+      { error: "Not found: Level 3 Variant authoring is disabled (enable 'l3' in NEWT_FEATURES)." },
+      { status: 404 }
     );
   }
 
+  let principal;
+  try {
+    principal = await authenticateRequest(request);
+  } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return Response.json({ error: err.message }, { status: err.status });
+    }
+    return Response.json({ error: String(err) }, { status: 401 });
+  }
+
+  const { id } = await context.params;
   const daemon = getStudioDaemon();
   const project = daemon.db.getProject(id);
   if (!project) {
     return Response.json({ error: `Project '${id}' not found` }, { status: 404 });
   }
+  try {
+    assertProjectOwnership(project, principal);
+  } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return Response.json({ error: err.message }, { status: err.status });
+    }
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const snap = daemon.db.getCurrentSnapshot(id);
   const patch = snap?.compiledBundle?.variantPatch;
   if (!snap || !patch) {

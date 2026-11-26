@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { authenticateRequest, StudioAuthError } from "@/server/auth";
+import { isFeatureEnabled } from "@/server/config";
 import { getStudioDaemon } from "@/server/daemon";
 import { WebhookEntitlementVerifier } from "@/server/entitlements";
 import {
   createSalamandaClientFromEnv,
   EgressConsentRequiredError,
-  extractDelegatedPrincipal,
   updateMySalamandaBindings,
 } from "@/server/salamanda-deployer";
 
@@ -22,11 +23,18 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ limbId: string }> }
 ) {
+  if (!isFeatureEnabled("gallery")) {
+    return NextResponse.json(
+      { error: "Not found: gallery feature is disabled (enable 'gallery' in NEWT_FEATURES)." },
+      { status: 404 }
+    );
+  }
+
   try {
+    const { principalUid, auth } = await authenticateRequest(request);
     const { limbId } = await context.params;
     const raw = await request.text();
     const body = raw.trim() ? InstallBodySchema.parse(JSON.parse(raw)) : {};
-    const { principalUid, auth } = extractDelegatedPrincipal(request);
     const daemon = getStudioDaemon();
 
     const listing = daemon.db.getGalleryListing(limbId);
@@ -98,6 +106,9 @@ export async function POST(
       bindings,
     });
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     if (err instanceof EgressConsentRequiredError) {
       return NextResponse.json(
         {

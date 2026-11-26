@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertProjectOwnership, authenticateRequest, StudioAuthError } from "@/server/auth";
 import { getStudioDaemon } from "@/server/daemon";
 
 export const runtime = "nodejs";
@@ -9,6 +10,7 @@ const ChatBodySchema = z.object({
   selectedSlot: z.string().min(1).optional(),
   approvedEgressHosts: z.array(z.string()).optional(),
   baseSourceFiles: z.record(z.string()).optional(),
+  untrustedHostContext: z.string().max(16000).optional(),
 });
 
 function formatSseFrame(eventName: string, data: unknown): Uint8Array {
@@ -20,11 +22,30 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  let principal;
+  try {
+    principal = await authenticateRequest(request);
+  } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return Response.json({ error: err.message }, { status: err.status });
+    }
+    return Response.json({ error: String(err) }, { status: 401 });
+  }
+
   const { id } = await context.params;
   const daemon = getStudioDaemon();
 
-  if (!daemon.db.getProject(id)) {
+  const project = daemon.db.getProject(id);
+  if (!project) {
     return Response.json({ error: `Project '${id}' not found` }, { status: 404 });
+  }
+  try {
+    assertProjectOwnership(project, principal);
+  } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return Response.json({ error: err.message }, { status: err.status });
+    }
+    return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let body: z.infer<typeof ChatBodySchema>;
@@ -35,7 +56,7 @@ export async function POST(
     return Response.json({ error: message }, { status: 400 });
   }
 
-  const authorUid = request.headers.get("x-newt-uid")?.trim() || undefined;
+  const authorUid = principal.isLocalAnonymousFallback ? project.ownerUid : principal.principalUid;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -47,6 +68,7 @@ export async function POST(
           selectedSlot: body.selectedSlot,
           approvedEgressHosts: body.approvedEgressHosts,
           baseSourceFiles: body.baseSourceFiles,
+          untrustedHostContext: body.untrustedHostContext,
           onEvent: (event) => {
             controller.enqueue(formatSseFrame(event.type, event));
           },

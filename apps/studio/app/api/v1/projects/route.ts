@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { authenticateRequest, StudioAuthError } from "@/server/auth";
 import { getStudioDaemon } from "@/server/daemon";
 
 export const runtime = "nodejs";
@@ -14,25 +15,29 @@ const CreateProjectSchema = z.object({
   initialFiles: z.record(z.string()).optional(),
 });
 
-function resolveUid(request: Request): string {
-  return request.headers.get("x-newt-uid")?.trim() || "uid:studio";
-}
-
 export async function GET(request: Request) {
-  const daemon = getStudioDaemon();
-  const ownerUid = resolveUid(request);
-  const projects = daemon.listProjects(ownerUid);
-  return NextResponse.json({ projects });
+  try {
+    const principal = await authenticateRequest(request);
+    const daemon = getStudioDaemon();
+    const projects = daemon.listProjects(principal.principalUid);
+    return NextResponse.json({ projects });
+  } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
   try {
+    const principal = await authenticateRequest(request);
     const body = CreateProjectSchema.parse(await request.json());
     const daemon = getStudioDaemon();
-    const ownerUid = resolveUid(request);
 
     const created = await daemon.createProject({
-      ownerUid,
+      ownerUid: principal.principalUid,
       name: body.name,
       mode: body.mode,
       baseTarget: body.baseTarget,
@@ -43,6 +48,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(created, { status: 201 });
   } catch (err) {
+    if (err instanceof StudioAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 400 });
   }

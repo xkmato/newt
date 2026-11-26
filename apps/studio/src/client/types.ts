@@ -13,17 +13,47 @@ export interface BasePackDto {
   fixtures: Record<string, Array<Record<string, unknown>>>;
 }
 
+export interface StudioFeatureMapDto {
+  l1: boolean;
+  l2: boolean;
+  l3: boolean;
+  gallery: boolean;
+  publish: boolean;
+  monetization: boolean;
+}
+
 export interface HealthDto {
   ok: boolean;
   service: string;
   version: string;
+  env?: string;
   provider: {
     name: string;
     model: string;
     mode: "live" | "studio-local" | "custom";
   };
   bases: string[];
+  defaultBase?: string;
+  features?: StudioFeatureMapDto;
   l3Enabled: boolean;
+}
+
+export interface DeploymentStatusDto {
+  projectId: string;
+  limbId: string;
+  namespacedLimbId: string;
+  latestDeployment: {
+    id: string;
+    snapshotId: number;
+    status: "active" | "detached" | "quarantined" | "failed";
+    environment: string;
+    idempotencyKey?: string | null;
+    errorMessage?: string | null;
+    createdAt: number;
+  } | null;
+  activeBindings: string[];
+  isBound: boolean;
+  salamandaReachable: boolean;
 }
 
 export interface ProjectDetailDto {
